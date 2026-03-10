@@ -1,0 +1,13 @@
+{
+  "name": "amcharts3-export",
+  "version": "1.4.61",
+  "license": "SEE LICENSE IN LICENSE",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amcharts/export.git"
+  },
+  "dependencies": {
+    "amcharts3-export": "file:"
+  }
+}
