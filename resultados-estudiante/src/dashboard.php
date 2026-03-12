@@ -38,13 +38,27 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                             <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
                                 <a class="dashboard-stat bg-white" href="manage-students.php">
                                     <?php
-                                    $sql1 = "SELECT StudentId FROM tblstudents";
+                                    $sql1 = "SELECT StudentId FROM tblstudents WHERE Status = 1";
                                     $query1 = $dbh->prepare($sql1);
                                     $query1->execute();
                                     $totalstudents = $query1->rowCount();
                                     ?>
-                                    <span class="number counter"><?php echo htmlentities($totalstudents); ?></span>
-                                    <span class="name">Usuarios Registrados</span>
+                                    <span class="number counter" style="color: #4CAF50;">👨‍🎓 <?php echo htmlentities($totalstudents); ?></span>
+                                    <span class="name">Estudiantes Activos</span>
+                                </a>
+                            </div>
+
+                            <!-- Total de docentes (NUEVO FASE D) -->
+                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
+                                <a class="dashboard-stat bg-white" href="manage-teacher.php">
+                                    <?php
+                                    $sql_teachers = "SELECT Id FROM tblteachers WHERE Status = 1";
+                                    $query_teachers = $dbh->prepare($sql_teachers);
+                                    $query_teachers->execute();
+                                    $totalteachers = $query_teachers->rowCount();
+                                    ?>
+                                    <span class="number counter" style="color: #2196F3;">👨‍🏫 <?php echo htmlentities($totalteachers); ?></span>
+                                    <span class="name">Docentes Activos</span>
                                 </a>
                             </div>
 
@@ -57,13 +71,13 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query->execute();
                                     $totalsubjects = $query->rowCount();
                                     ?>
-                                    <span class="number counter"><?php echo htmlentities($totalsubjects); ?></span>
-                                    <span class="name">Listado de Materias</span>
+                                    <span class="number counter" style="color: #FF9800;">📚 <?php echo htmlentities($totalsubjects); ?></span>
+                                    <span class="name">Materias Registradas</span>
                                 </a>
                             </div>
 
                             <!-- Total de clases/años -->
-                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
                                 <a class="dashboard-stat bg-white" href="manage-classes.php">
                                     <?php
                                     $sql2 = "SELECT id FROM tblclasses";
@@ -71,12 +85,43 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query2->execute();
                                     $totalclasses = $query2->rowCount();
                                     ?>
-                                    <span class="number counter"><?php echo htmlentities($totalclasses); ?></span>
-                                    <span class="name">Total de Años Listados</span>
+                                    <span class="number counter" style="color: #9C27B0;">🎓 <?php echo htmlentities($totalclasses); ?></span>
+                                    <span class="name">Años Escolares</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Segunda fila de estadísticas (FASE C+D) -->
+                        <div class="row" style="margin-top: 20px;">
+                            <!-- Total de tutores (NUEVO FASE C) -->
+                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
+                                <a class="dashboard-stat bg-white" href="manage-students.php">
+                                    <?php
+                                    $sql_tutors = "SELECT DISTINCT student_tutor.teacherid FROM student_tutor";
+                                    $query_tutors = $dbh->prepare($sql_tutors);
+                                    $query_tutors->execute();
+                                    $totaltutors = $query_tutors->rowCount();
+                                    ?>
+                                    <span class="number counter" style="color: #E91E63;">👨‍👩‍👧 <?php echo htmlentities($totaltutors); ?></span>
+                                    <span class="name">Tutores Registrados</span>
                                 </a>
                             </div>
 
-                            <!-- Total de resultados publicados -->
+                            <!-- Asignaciones Docente-Materia (NUEVO FASE D) -->
+                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
+                                <a class="dashboard-stat bg-white" href="assign-teacher-subject.php">
+                                    <?php
+                                    $sql_assign = "SELECT Id FROM tblteacher_subject";
+                                    $query_assign = $dbh->prepare($sql_assign);
+                                    $query_assign->execute();
+                                    $totalassign = $query_assign->rowCount();
+                                    ?>
+                                    <span class="number counter" style="color: #F44336;">🔗 <?php echo htmlentities($totalassign); ?></span>
+                                    <span class="name">Docentes Asignados</span>
+                                </a>
+                            </div>
+
+                            <!-- Total de calificaciones -->
                             <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
                                 <a class="dashboard-stat bg-white" href="manage-results.php">
                                     <?php
@@ -85,9 +130,17 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query3->execute();
                                     $totalresults = $query3->rowCount();
                                     ?>
-                                    <span class="number counter"><?php echo htmlentities($totalresults); ?></span>
-                                    <span class="name">Resultados Publicados</span>
+                                    <span class="number counter" style="color: #00BCD4;">📊 <?php echo htmlentities($totalresults); ?></span>
+                                    <span class="name">Estudiantes con Calificaciones</span>
                                 </a>
+                            </div>
+
+                            <!-- Versión del sistema -->
+                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
+                                <div class="dashboard-stat bg-white">
+                                    <span class="number counter" style="color: #673AB7;">✨</span>
+                                    <span class="name">Sistema v4.0 Fase D+E</span>
+                                </div>
                             </div>
                         </div>
 

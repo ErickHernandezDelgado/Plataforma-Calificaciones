@@ -12,7 +12,7 @@
     <title>Dashboard</title>
     
     <!-- Ícono del sitio web -->
-    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">a <!-- La 'a' al final parece un error tipográfico -->
+    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">
 
     <!-- Archivos CSS requeridos por el sistema -->
     <link rel="stylesheet" href="assets/css/bootstrap.min.css" media="screen"> <!-- Framework Bootstrap -->
@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="assets/css/icheck/skins/line/green.css"> <!-- Estilos para checkboxes (verde) -->
     <link rel="stylesheet" href="assets/css/main.css" media="screen"> <!-- Hoja de estilos principal del sistema -->
     <link rel="stylesheet" href="assets/css/prism/prism.css" media="screen"> <!-- Sintaxis resaltada para código (Prism) -->
+    <link rel="stylesheet" href="assets/css/custom-styles.css" media="screen"> <!-- Estilos personalizados Fase D+E -->
 
     <!-- Script para detección de funcionalidades del navegador -->
     <script src="assets/js/modernizr/modernizr.min.js"></script>

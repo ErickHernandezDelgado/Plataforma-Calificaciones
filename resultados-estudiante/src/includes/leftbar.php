@@ -34,54 +34,41 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     </ul>
                 </li>
 
-                <!-- Menú para la gestión de profesores -->
+                <!-- Menú para la gestión de profesores (MEJORADO FASE D) -->
                 <li class="has-children">
-                    <a href="#"><i class="fa fa-file-text"></i> <span>Profesores</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <a href="#"><i class="fa fa-graduation-cap"></i> <span>Docentes</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
-                        <li><a href="add-teacher.php"><i class="fa fa-plus"></i> <span>Agregar Maestro</span></a></li>
-                        <li><a href="manage-teacher.php"><i class="fa fa-bars"></i> <span>Gestionar Maestros</span></a></li>
-                        <li><a href="assign-teacher-subject.php"><i class="fa fa-link"></i> <span>Asignar a Materias</span></a></li>
+                        <li><a href="add-teacher.php"><i class="fa fa-plus"></i> <span>+ Agregar Docente</span></a></li>
+                        <li><a href="manage-teacher.php"><i class="fa fa-list"></i> <span>📋 Gestionar Docentes</span></a></li>
+                        <li><a href="assign-teacher-subject.php"><i class="fa fa-book"></i> <span>🔗 Asignar Materias</span></a></li>
                     </ul>
                 </li>
 
-                <!-- Menú para la gestión de materias -->
+                <!-- Menú para la gestión de materias (CONSOLIDADO FASE D) -->
                 <li class="has-children">
                     <a href="#"><i class="fa fa-book"></i> <span>Materias</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
-                        <li><a href="create-subject.php"><i class="fa fa-plus"></i> <span>Crear Materias</span></a></li>
-                        <li><a href="manage-subjects.php"><i class="fa fa-bars"></i> <span>Gestionar Materias</span></a></li>
-                        <li><a href="add-subjectcombination.php"><i class="fa fa-plus"></i> <span>Gestionar Relación Materias</span></a></li>
-                        <li><a href="manage-subjectcombination.php"><i class="fa fa-bars"></i> <span>Ver Relación de Materias</span></a></li>
+                        <li><a href="create-subject.php"><i class="fa fa-plus"></i> <span>+ Crear Materia</span></a></li>
+                        <li><a href="manage-subjects.php"><i class="fa fa-list"></i> <span>📋 Gestionar Materias Unificado</span></a></li>
                     </ul>
                 </li>
 
-                <!-- Menú para la gestión de estudiantes -->
+                <!-- Menú para la gestión de estudiantes (MEJORADO FASE C) -->
                 <li class="has-children">
                     <a href="#"><i class="fa fa-users"></i> <span>Estudiantes</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
-                        <li><a href="add-students.php"><i class="fa fa-plus"></i> <span>Agregar Estudiantes</span></a></li>
-                        <li><a href="manage-students.php"><i class="fa fa-bars"></i> <span>Gestionar Estudiantes</span></a></li>
+                        <li><a href="add-students.php"><i class="fa fa-plus"></i> <span>+ Agregar Estudiante + Tutor</span></a></li>
+                        <li><a href="manage-students.php"><i class="fa fa-list"></i> <span>📋 Gestionar Estudiantes + Tutores</span></a></li>
                     </ul>
                 </li>
 
-                <!-- Menú para subir o gestionar calificaciones -->
+                <!-- Menú para subir o gestionar calificaciones (MEJORADO FASE E) -->
                 <li class="has-children">
                     <a href="#"><i class="fa fa-file-o"></i> <span>Calificaciones</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
-                        <li><a href="add-result2.php"><i class="fa fa-plus"></i> <span>Subir Calificaciones</span></a></li>
-                        <li><a href="manage-results.php"><i class="fa fa-bars"></i> <span>Gestionar Calificaciones</span></a></li>
-                    </ul>
-                </li>
-
-                <!-- Menú para imprimir calificaciones por nivel educativo y idioma -->
-                <li class="has-children">
-                    <a href="#"><i class="fa fa-file-o"></i> <span>Imprimir Calificaciones</span> <i class="fa fa-angle-right arrow"></i></a>
-                    <ul class="child-nav">
-                        <li><a href="manage-results-pre-es.php"><i class="fa fa-bars"></i> <span> Preescolar Español</span></a></li>
-                        <li><a href="manage-results-pre-in.php"><i class="fa fa-bars"></i> <span>Preescolar Ingles</span></a></li>
-                        <li><a href="manage-results-pe.php"><i class="fa fa-bars"></i> <span> Primaria Español</span></a></li>
-                        <li><a href="manage-results-pi.php"><i class="fa fa-bars"></i> <span>Primaria Ingles</span></a></li>
-                        <li><a href="manage-results-sec.php"><i class="fa fa-bars"></i> <span>Secundaria</span></a></li>
+                        <li><a href="add-result.php"><i class="fa fa-plus"></i> <span>+ Agregar Resultado (Período Dinámico)</span></a></li>
+                        <li><a href="manage-results.php"><i class="fa fa-list"></i> <span>📋 Gestionar Calificaciones</span></a></li>
+                        <li><a href="manage-results-sec.php"><i class="fa fa-bars"></i> <span>🎓 Secundaria</span></a></li>
                     </ul>
                 </li>
 
