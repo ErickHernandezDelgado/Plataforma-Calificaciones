@@ -1,6 +1,6 @@
 <?php
 // Inicia la sesión para poder acceder a variables de sesión
-session_start();
+
 
 // Verifica si la sesión no está activa o si el usuario no es un maestro
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {

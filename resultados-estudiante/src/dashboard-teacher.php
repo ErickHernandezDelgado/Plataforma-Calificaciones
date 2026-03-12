@@ -5,8 +5,8 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 // Inicia sesión
-session_start();
 include(__DIR__ . '/includes/config.php'); // Conexión a la base de datos
+session_start();
 
 // Verifica que el usuario haya iniciado sesión y que sea un maestro
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {

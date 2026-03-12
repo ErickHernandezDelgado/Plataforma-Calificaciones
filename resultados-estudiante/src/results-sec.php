@@ -93,7 +93,7 @@ foreach ($students as $student):
 
 <div class="boleta">
     <!-- Logo del instituto; isRemoteEnabled en Dompdf permite imágenes remotas -->
-    <img src="https://evalua-ipt/spacecare.center/assets/images/favicon.png" height="100" width="auto" alt="Logo IPT" />
+    <img src="C:\xampp\htdocs\resultados-estudiante\src\assets\images\favicon.png" height="100" width="auto" alt="Logo" />
     
     <div class="header">
         <h2>INSTITUTO PANAMERICANO DE TAMPICO</h2>

@@ -19,7 +19,7 @@ if (isset($_POST['login'])) {
     $username = trim($_POST['username']);
     $password = $_POST['password'];
 
-    // Buscar al usuario
+    // PASO 1: Intentar login normal (admin, maestro)
     $sql = "SELECT id, UserName, Password, role, teacher_id 
             FROM admin 
             WHERE UserName = :username
@@ -30,8 +30,21 @@ if (isset($_POST['login'])) {
 
     $user = $query->fetch(PDO::FETCH_OBJ);
 
-    // Verificar contraseña (password_hash + md5 legacy)
-    if ($user && (password_verify($password, $user->Password) || md5($password) === $user->Password)) {
+    // PASO 2: Si no encontró en admin, buscar en vw_tutor_login (login con email del alumno)
+    if (!$user) {
+        $sql_tutor = "SELECT TutorId as id, TutorEmail as UserName, Password, 'tutor' as role, NULL as teacher_id
+                      FROM vw_tutor_login 
+                      WHERE StudentEmail = :email
+                      LIMIT 1";
+        $query_tutor = $dbh->prepare($sql_tutor);
+        $query_tutor->bindParam(':email', $username, PDO::PARAM_STR);
+        $query_tutor->execute();
+        
+        $user = $query_tutor->fetch(PDO::FETCH_OBJ);
+    }
+
+    // PASO 3: Verificar contraseña (TEXTO PLANO, sin hash)
+    if ($user && ($password === $user->Password)) {
         // Autenticación exitosa
         $_SESSION['alogin'] = $user->UserName;
         $_SESSION['role'] = $user->role;
@@ -473,15 +486,15 @@ if (isset($_POST['login'])) {
                 <h6><i class="fas fa-info-circle"></i> Credenciales de Prueba</h6>
                 <div class="demo-row">
                     <strong>Admin:</strong>
-                    <code>admin@test.com</code> / <code>Admin123</code>
+                    <code>admin</code> / <code>admin123</code>
                 </div>
                 <div class="demo-row">
                     <strong>Docente:</strong>
-                    <code>teacher@test.com</code> / <code>Teacher123</code>
+                    <code>Brenda.Vazquez@ipt.edu.mx</code> / <code>brenda2025</code>
                 </div>
                 <div class="demo-row">
                     <strong>Tutor:</strong>
-                    <code>tutor@test.com</code> / <code>Tutor123</code>
+                    <code>Farah.Balderas@ipt.edu.mx</code> / <code>tutor123</code>
                 </div>
             </div>
         </div>

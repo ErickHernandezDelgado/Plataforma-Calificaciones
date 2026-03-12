@@ -1,6 +1,6 @@
 <?php
 // Inicia la sesión para poder trabajar con variables de sesión
-session_start();
+
 
 // Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
@@ -11,23 +11,17 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
 ?>
 
 <!-- Menú lateral izquierdo exclusivo para el rol de administrador -->
-<div class="left-sidebar box-shadow" style="background-color: #3d85ed;">
+<div class="left-sidebar box-shadow" style="background-color: #0F9B3A;">
     <div class="sidebar-content">
         <div class="sidebar-nav">
             <ul class="side-nav color-gray">
 
-                <!-- Encabezado del panel de administración -->
-                <li class="nav-header"><span>Panel de Control</span></li>
-
                 <!-- Acceso al dashboard principal -->
                 <li><a href="dashboard.php"><i class="fa fa-dashboard"></i> <span>Dashboard</span></a></li>
 
-                <!-- Encabezado de la sección de configuración -->
-                <li class="nav-header"><span>Configuración</span></li>
-
                 <!-- Menú para la gestión de años escolares -->
                 <li class="has-children">
-                    <a href="#"><i class="fa fa-file-text"></i> <span>Gestión de Años Escolares</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <a href="#"><i class="fa fa-file-text"></i> <span>Ciclos Escolares</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
                         <li><a href="create-class.php"><i class="fa fa-plus"></i> <span>Crear Años</span></a></li>
                         <li><a href="manage-classes.php"><i class="fa fa-bars"></i> <span>Gestionar Años</span></a></li>
@@ -72,19 +66,6 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                         <li><a href="manage-results.php"><i class="fa fa-bars"></i> <span>Gestionar Calificaciones</span></a></li>
                     </ul>
                 </li>
-
-                <!-- Menú para imprimir calificaciones por nivel educativo y idioma -->
-                <li class="has-children">
-                    <a href="#"><i class="fa fa-file-o"></i> <span>Imprimir Calificaciones</span> <i class="fa fa-angle-right arrow"></i></a>
-                    <ul class="child-nav">
-                        <li><a href="manage-results-pre-es.php"><i class="fa fa-bars"></i> <span> Preescolar Español</span></a></li>
-                        <li><a href="manage-results-pre-in.php"><i class="fa fa-bars"></i> <span>Preescolar Ingles</span></a></li>
-                        <li><a href="manage-results-pe.php"><i class="fa fa-bars"></i> <span> Primaria Español</span></a></li>
-                        <li><a href="manage-results-pi.php"><i class="fa fa-bars"></i> <span>Primaria Ingles</span></a></li>
-                        <li><a href="manage-results-sec.php"><i class="fa fa-bars"></i> <span>Secundaria</span></a></li>
-                    </ul>
-                </li>
-
                 <!-- Menú para la gestión de comunicados -->
                 <li class="has-children">
                     <a href="#"><i class="fa fa-bell"></i> <span>Comunicados</span> <i class="fa fa-angle-right arrow"></i></a>
@@ -93,9 +74,10 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                         <li><a href="manage-notices.php"><i class="fa fa-bars"></i> <span>Gestionar Comunicado</span></a></li>
                     </ul>
                 </li>
-
-                <!-- Enlace para añadir nuevos usuarios al sistema -->
-                <li><a href="add-user.php"><i class="fa fa-key"></i> <span>Añadir Usuarios</span></a></li>
+                 <!-- Menú para imprimir calificaciones (Simplificado) -->
+                <li>
+                    <a href="select-group-print.php"><i class="fa fa-file-pdf"></i> <span>Imprimir Calificaciones</span></a>
+                </li>
             </ul>
         </div>
     </div>

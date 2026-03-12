@@ -16,45 +16,94 @@ if (strlen($_SESSION['alogin']) == "") {
     // Si se envió el formulario
     if (isset($_POST['submit'])) {
 
-        // Inicializa arreglo de calificaciones
-        $marks = array();
-        $class = $_POST['class']; // ID de clase (año y sección)
-        $studentid = $_POST['studentid']; // ID del estudiante
-        $mark = $_POST['marks']; // Array de calificaciones por materia
+        // ====== VALIDACIÓN 1: PERÍODO OBLIGATORIO ======
+        $term = isset($_POST['term']) && !empty($_POST['term']) ? intval($_POST['term']) : null;
+        if (!$term || $term < 1 || $term > 3) {
+            $error = "❌ ERROR: Debes seleccionar un PERÍODO (1, 2 ó 3) antes de guardar calificaciones.";
+        } else {
+            // Inicializa arreglo de calificaciones
+            $marks = array();
+            $class = $_POST['class']; // ID de clase (año y sección)
+            $studentid = $_POST['studentid']; // ID del estudiante
+            $mark = $_POST['marks']; // Array de calificaciones por materia
 
-        // Consulta las materias correspondientes a la clase seleccionada
-        $stmt = $dbh->prepare("SELECT tblsubjects.SubjectName,tblsubjects.id 
-                               FROM tblsubjectcombination 
-                               JOIN tblsubjects ON tblsubjects.id = tblsubjectcombination.SubjectId 
-                               WHERE tblsubjectcombination.ClassId = :cid 
-                               ORDER BY tblsubjects.SubjectName");
-        $stmt->execute(array(':cid' => $class));
-
-        // Almacena los IDs de las materias en el arreglo $sid1
-        $sid1 = array();
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            array_push($sid1, $row['id']);
-        }
-
-        // Inserta los resultados en la tabla tblresult por cada materia
-        for ($i = 0; $i < count($mark); $i++) {
-            $mar = $mark[$i]; // calificación
-            $sid = $sid1[$i]; // ID de la materia correspondiente
-            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks) 
-                    VALUES(:studentid, :class, :sid, :marks)";
-            $query = $dbh->prepare($sql);
-            $query->bindParam(':studentid', $studentid, PDO::PARAM_STR);
-            $query->bindParam(':class', $class, PDO::PARAM_STR);
-            $query->bindParam(':sid', $sid, PDO::PARAM_STR);
-            $query->bindParam(':marks', $mar, PDO::PARAM_STR);
-            $query->execute();
-
-            // Verifica si la inserción fue exitosa
-            $lastInsertId = $dbh->lastInsertId();
-            if ($lastInsertId) {
-                $msg = "Resultado Agregado Correctamente";
+            // ====== VALIDACIÓN 2: VERIFICAR ASIGNACIÓN DE MAESTRO ======
+            $teacher_id = $_SESSION['teacherid'] ?? null;
+            if (!$teacher_id) {
+                $error = "❌ ERROR: No se encontró ID del maestro en sesión.";
             } else {
-                $error = "Something went wrong. Please try again";
+                // Consulta las materias correspondientes a la clase seleccionada
+                $stmt = $dbh->prepare("SELECT tblsubjects.SubjectName, tblsubjects.id 
+                                       FROM tblsubjectcombination 
+                                       JOIN tblsubjects ON tblsubjects.id = tblsubjectcombination.SubjectId 
+                                       WHERE tblsubjectcombination.ClassId = :cid 
+                                       ORDER BY tblsubjects.SubjectName");
+                $stmt->execute(array(':cid' => $class));
+
+                // Almacena los IDs de las materias en el arreglo $sid1
+                $sid1 = array();
+                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    array_push($sid1, $row['id']);
+                }
+
+                // Inserta los resultados en la tabla tblresult por cada materia
+                $insert_count = 0;
+                $insert_errors = array();
+
+                for ($i = 0; $i < count($mark); $i++) {
+                    $mar = $mark[$i]; // calificación
+                    $sid = $sid1[$i]; // ID de la materia correspondiente
+
+                    // ====== VALIDACIÓN 3: VERIFICAR FK (Maestro-Materia-Grupo) ======
+                    $sql_check = "SELECT COUNT(*) as count FROM tblteacher_subject 
+                                  WHERE TeacherId = :tid AND SubjectId = :sid AND ClassId = :cid";
+                    $check_stmt = $dbh->prepare($sql_check);
+                    $check_stmt->execute(array(
+                        ':tid' => $teacher_id,
+                        ':sid' => $sid,
+                        ':cid' => $class
+                    ));
+                    $check_row = $check_stmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($check_row['count'] == 0) {
+                        // El maestro no tiene asignada esta materia en este grupo
+                        $sql_subj = "SELECT SubjectName FROM tblsubjects WHERE id = :sid";
+                        $subj_stmt = $dbh->prepare($sql_subj);
+                        $subj_stmt->execute(array(':sid' => $sid));
+                        $subj_name = $subj_stmt->fetch(PDO::FETCH_ASSOC)['SubjectName'] ?? 'Desconocida';
+                        
+                        $insert_errors[] = "No tienes asignada la materia <b>" . htmlentities($subj_name) . "</b> en este grupo.";
+                    } else {
+                        // Insertar calificación CON el período
+                        $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, term) 
+                                VALUES(:studentid, :class, :sid, :marks, :term)";
+                        $query = $dbh->prepare($sql);
+                        $query->bindParam(':studentid', $studentid, PDO::PARAM_STR);
+                        $query->bindParam(':class', $class, PDO::PARAM_STR);
+                        $query->bindParam(':sid', $sid, PDO::PARAM_STR);
+                        $query->bindParam(':marks', $mar, PDO::PARAM_STR);
+                        $query->bindParam(':term', $term, PDO::PARAM_INT);
+                        
+                        try {
+                            $query->execute();
+                            $lastInsertId = $dbh->lastInsertId();
+                            if ($lastInsertId) {
+                                $insert_count++;
+                            }
+                        } catch (Exception $e) {
+                            $insert_errors[] = "Error al guardar calificación: " . $e->getMessage();
+                        }
+                    }
+                }
+
+                // Establecer mensaje de éxito o error
+                if (count($insert_errors) > 0) {
+                    $error = "❌ Se encontraron errores:\n" . implode("\n", $insert_errors);
+                } else if ($insert_count > 0) {
+                    $msg = "✅ " . $insert_count . " Calificación(es) guardada(s) correctamente para el Período " . $term . ".";
+                } else {
+                    $error = "No se guardaron calificaciones.";
+                }
             }
         }
     }
@@ -166,7 +215,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                             <select name="class" class="form-control clid" id="classid" onChange="getStudent(this.value);" required>
                                                 <option value="">Seleccionar Año</option>
                                                 <?php
-                                                $sql = "SELECT * FROM tblclasses";
+                                                $sql = "SELECT * FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC, Section ASC";
                                                 $query = $dbh->prepare($sql);
                                                 $query->execute();
                                                 $results = $query->fetchAll(PDO::FETCH_OBJ);
@@ -179,6 +228,18 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <?php }
                                                 } ?>
                                             </select>
+                                        </div>
+
+                                        <!-- ⭐ NUEVO: Selección de Período (OBLIGATORIO) ⭐ -->
+                                        <div class="form-group">
+                                            <label for="term" class="control-label"><strong style="color: red;">PERÍODO (OBLIGATORIO):</strong></label>
+                                            <select name="term" id="term" class="form-control" required>
+                                                <option value="">-- Selecciona el período --</option>
+                                                <option value="1">Trimestre I (Enero-Abril)</option>
+                                                <option value="2">Trimestre II (Mayo-Agosto)</option>
+                                                <option value="3">Trimestre III (Septiembre-Diciembre)</option>
+                                            </select>
+                                            <small style="color: #666; display: block; margin-top: 5px;">⚠️ Debes especificar en qué período estás registrando las calificaciones</small>
                                         </div>
 
                                         <!-- Selección de estudiante -->
@@ -201,7 +262,7 @@ if (strlen($_SESSION['alogin']) == "") {
 
                                         <!-- Botón para enviar -->
                                         <div class="form-group">
-                                            <button type="submit" name="submit" id="submit" class="btn btn-success">Mostrar Resultados</button>
+                                            <button type="submit" name="submit" id="submit" class="btn btn-success">Guardar Calificaciones</button>
                                         </div>
                                     </form>
                                     <!-- Fin del formulario -->

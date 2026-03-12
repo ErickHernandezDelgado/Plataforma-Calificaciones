@@ -91,7 +91,17 @@ foreach ($students as $student):
 </style>
 
 <div class="boleta">
-    <img src="file://<?= str_replace(chr(92), '/', __DIR__) ?>/assets/images/IPT.jpeg" height="100" width="auto" alt="Logo IPT" />
+    <?php 
+    // ====== RUTA ABSOLUTA DEL LOGO ======
+    $logo_path = __DIR__ . '/assets/images/IPT.jpeg';
+    
+    // Verificar que el archivo existe
+    if (file_exists($logo_path)) {
+        // Convertir a ruta file:// compatible con DOMPDF en Windows
+        $logo_url = 'file:///' . str_replace(chr(92), '/', $logo_path);
+        echo '<img src="' . $logo_url . '" height="100" width="auto" alt="Logo IPT" />';
+    }
+    ?>
     <div class="header">
         <h2>INSTITUTO PANAMERICANO DE TAMPICO</h2>
         <h3>BOLETA DE EVALUACIÓN / GRADE REPORT</h3>
