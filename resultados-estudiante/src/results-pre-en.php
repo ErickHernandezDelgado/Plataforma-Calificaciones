@@ -102,8 +102,8 @@ foreach ($students as $student):
 </style>
 
 <div class="boleta">
-    <!-- Logo remoto, requiere isRemoteEnabled=true en Dompdf -->
-    <img src="https://evalua-ipt/spacecare.center/assets/images/favicon.png" height="100" width="auto" alt="Logo IPT" />
+    <!-- Logo con ruta relativa para portabilidad en cualquier servidor -->
+    <img src="file://<?= str_replace(chr(92), '/', __DIR__) ?>/assets/images/IPT.jpeg" height="100" width="auto" alt="Logo IPT" />
     <div class="header">
         <h2>INSTITUTO PANAMERICANO DE TAMPICO</h2>
         <h3>BOLETA DE EVALUACIÓN</h3>

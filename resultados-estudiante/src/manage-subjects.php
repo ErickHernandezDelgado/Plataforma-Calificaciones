@@ -71,24 +71,84 @@ if (strlen($_SESSION['alogin']) == "") {
                                     </div>
                                 <?php } ?>
 
-                                <!-- Tabla de materias -->
+                                <!-- Filtro por grupo académico -->
+                                <div class="panel-body p-20" style="border-bottom: 1px solid #ddd;">
+                                    <form method="POST" action="">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <label><strong>Filtrar por Grupo:</strong></label>
+                                                <select name="class_filter" class="form-control" onchange="this.form.submit();">
+                                                    <option value="">-- Ver Todos --</option>
+                                                    <?php
+                                                    // Obtener todos los grupos disponibles
+                                                    $sql_class = "SELECT DISTINCT c.id, c.ClassName, c.Section, c.AcademicYear, c.educationLevel
+                                                                  FROM tblclasses c
+                                                                  JOIN tblsubjectcombination sc ON sc.ClassId = c.id
+                                                                  WHERE sc.status = 1
+                                                                  ORDER BY c.AcademicYear DESC, 
+                                                                           FIELD(c.educationLevel, 'infantil', 'primaria', 'secundaria'),
+                                                                           c.ClassName ASC, c.Section ASC";
+                                                    $query_class = $dbh->prepare($sql_class);
+                                                    $query_class->execute();
+                                                    $classes = $query_class->fetchAll(PDO::FETCH_OBJ);
+                                                    
+                                                    $selected_class = isset($_POST['class_filter']) ? $_POST['class_filter'] : '';
+                                                    
+                                                    foreach ($classes as $class) {
+                                                        $selected = ($selected_class == $class->id) ? 'selected' : '';
+                                                        echo "<option value='{$class->id}' {$selected}>{$class->ClassName} - {$class->Section} ({$class->AcademicYear})</option>";
+                                                    }
+                                                    ?>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <!-- Tabla de materias por grupo (VISTA CONSOLIDADA) -->
                                 <div class="panel-body p-20">
                                     <table id="example" class="display table table-striped table-bordered" cellspacing="0" width="100%">
                                         <thead>
                                             <tr>
                                                 <th>#</th>
-                                                <th>Nombre Materia</th>
-                                                <th>Código Materia</th>
-                                                <th>Fecha Creación</th>
-                                                <th>Fecha Actualización</th>
+                                                <th>Materia</th>
+                                                <th>Código</th>
+                                                <th>Grupos Asignados</th>
+                                                <th>Nivel Educativo</th>
+                                                <th>Año Académico</th>
+                                                <th>Estado</th>
                                                 <th>Acción</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php 
-                                            // Consulta todas las materias
-                                            $sql = "SELECT * FROM tblsubjects";
+                                            // Consultar vista consolidada de materias por grupo
+                                            $sql = "SELECT DISTINCT 
+                                                    s.id,
+                                                    s.SubjectName,
+                                                    s.SubjectCode,
+                                                    s.Language,
+                                                    GROUP_CONCAT(DISTINCT c.ClassName, ' (', c.Section, ')' ORDER BY c.ClassName SEPARATOR ', ') as grupos,
+                                                    GROUP_CONCAT(DISTINCT c.educationLevel ORDER BY c.educationLevel SEPARATOR ', ') as niveles,
+                                                    GROUP_CONCAT(DISTINCT c.AcademicYear ORDER BY c.AcademicYear SEPARATOR ', ') as anos,
+                                                    COUNT(DISTINCT sc.id) as num_grupos
+                                            FROM tblsubjects s
+                                            LEFT JOIN tblsubjectcombination sc ON sc.SubjectId = s.id AND sc.status = 1
+                                            LEFT JOIN tblclasses c ON sc.ClassId = c.id";
+                                            
+                                            // Agregar filtro si se seleccionó un grupo
+                                            if (!empty($selected_class)) {
+                                                $sql .= " WHERE sc.ClassId = :class_id";
+                                            }
+                                            
+                                            $sql .= " GROUP BY s.id ORDER BY s.SubjectName ASC";
+                                            
                                             $query = $dbh->prepare($sql);
+                                            
+                                            if (!empty($selected_class)) {
+                                                $query->bindParam(':class_id', $selected_class, PDO::PARAM_INT);
+                                            }
+                                            
                                             $query->execute();
                                             $results = $query->fetchAll(PDO::FETCH_OBJ);
                                             $cnt = 1;
@@ -96,25 +156,44 @@ if (strlen($_SESSION['alogin']) == "") {
                                             // Si hay resultados, los mostramos
                                             if ($query->rowCount() > 0) {
                                                 foreach ($results as $result) {
+                                                    $status_badge = ($result->num_grupos > 0) ? '<span class="badge badge-success">Asignada</span>' : '<span class="badge badge-warning">No Asignada</span>';
                                             ?>
                                                     <tr>
                                                         <td><?php echo htmlentities($cnt); ?></td>
                                                         <td><?php echo htmlentities($result->SubjectName); ?></td>
                                                         <td><?php echo htmlentities($result->SubjectCode); ?></td>
-                                                        <td><?php echo htmlentities($result->Creationdate); ?></td>
-                                                        <td><?php echo htmlentities($result->UpdationDate); ?></td>
                                                         <td>
-                                                            <!-- Botón para editar -->
-                                                            <a href="edit-subject.php?subjectid=<?php echo htmlentities($result->id); ?>" class="btn btn-info">
-                                                                <i class="fa fa-edit" title="Editar Materia"></i>
+                                                            <?php 
+                                                            if (empty($result->grupos)) {
+                                                                echo '<em class="text-danger">-- Sin asignar --</em>';
+                                                            } else {
+                                                                echo htmlentities($result->grupos);
+                                                            }
+                                                            ?>
+                                                        </td>
+                                                        <td><?php echo htmlentities($result->niveles); ?></td>
+                                                        <td><?php echo htmlentities($result->anos); ?></td>
+                                                        <td><?php echo $status_badge; ?></td>
+                                                        <td>
+                                                            <!-- Botón para editar materia -->
+                                                            <a href="edit-subject.php?subjectid=<?php echo htmlentities($result->id); ?>" class="btn btn-info btn-sm" title="Editar datos">
+                                                                <i class="fa fa-edit"></i> Editar
+                                                            </a>
+                                                            <!-- Botón para asignar a grupos -->
+                                                            <a href="add-subjectcombination.php?subjectid=<?php echo htmlentities($result->id); ?>" class="btn btn-warning btn-sm" title="Asignar a grupos">
+                                                                <i class="fa fa-plus"></i> Asignar
                                                             </a>
                                                         </td>
                                                     </tr>
                                             <?php 
                                                     $cnt++;
                                                 }
-                                            }
+                                            } else {
                                             ?>
+                                                <tr>
+                                                    <td colspan="8" class="text-center text-muted">No hay materias registradas</td>
+                                                </tr>
+                                            <?php } ?>
                                         </tbody>
                                     </table>
                                 </div> <!-- /.panel-body -->

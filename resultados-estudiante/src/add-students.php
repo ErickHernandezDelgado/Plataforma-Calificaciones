@@ -37,22 +37,21 @@ function generatePassword($length = 8) {
     return $password;
 }
 
-// Función auxiliar: crear tutor en base de datos
+// Función auxiliar: crear tutor en base de datos (TEXTO PLANO - Sin hash)
 function createTutor($dbh, $tutor_email, $tutor_name) {
-    $password = generatePassword(8);
-    $password_hash = password_hash($password, PASSWORD_DEFAULT);
+    $password = generatePassword(8);  // Contraseña en TEXTO PLANO
     $role = 'tutor';
     
     $sql = "INSERT INTO admin (UserName, Password, role, teacher_id) 
             VALUES(:username, :password, :role, NULL)";
     $query = $dbh->prepare($sql);
     $query->bindParam(':username', $tutor_email, PDO::PARAM_STR);
-    $query->bindParam(':password', $password_hash, PDO::PARAM_STR);
+    $query->bindParam(':password', $password, PDO::PARAM_STR);  // Sin password_hash() - TEXTO PLANO
     $query->bindParam(':role', $role, PDO::PARAM_STR);
     
     if ($query->execute()) {
         $tutor_id = $dbh->lastInsertId();
-        return ['id' => $tutor_id, 'email' => $tutor_email, 'password' => $password];
+        return ['id' => $tutor_id, 'email' => $tutor_email, 'password' => $password, 'name' => $tutor_name];
     }
     return null;
 }
@@ -83,7 +82,6 @@ function linkTutorToStudent($dbh, $student_id, $tutor_id, $relationship_type = '
 if (isset($_POST['submit'])) {
     // Recoge datos del formulario
     $studentname = $_POST['fullanme'];
-    $roolid = $_POST['rollid'];
     $studentemail = $_POST['emailid'];
     $curp = $_POST['curp'];
     $classid = $_POST['class'];
@@ -94,12 +92,11 @@ if (isset($_POST['submit'])) {
     $tutor_id = null;
     $tutor_info = null;
 
-    // Inserta el estudiante
-    $sql = "INSERT INTO tblstudents(StudentName, RollId, StudentEmail, CURP, ClassId, Status) 
-            VALUES(:studentname, :roolid, :studentemail, :curp, :classid, :status)";
+    // Inserta el estudiante (sin RollId)
+    $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, CURP, ClassId, Status) 
+            VALUES(:studentname, :studentemail, :curp, :classid, :status)";
     $query = $dbh->prepare($sql);
     $query->bindParam(':studentname', $studentname);
-    $query->bindParam(':roolid', $roolid);
     $query->bindParam(':studentemail', $studentemail);
     $query->bindParam(':curp', $curp);
     $query->bindParam(':classid', $classid);
@@ -124,16 +121,33 @@ if (isset($_POST['submit'])) {
                 linkTutorToStudent($dbh, $student_id, $tutor_id, $relationship);
                 
                 $tutor_credentials = "
-                <div class='alert alert-info'>
-                    <strong>Cuenta de Tutor Creada:</strong><br>
-                    <strong>Email:</strong> {$tutor_info['email']}<br>
-                    <strong>Contraseña Temporal:</strong> {$tutor_info['password']}<br>
-                    <strong>⚠️ Importante:</strong> Entrega estas credenciales al padre/tutor de familia.
+                <div class='alert alert-success alert-dismissible fade show' role='alert'>
+                    <button type='button' class='close' data-dismiss='alert' aria-label='Close'>
+                        <span aria-hidden='true'>&times;</span>
+                    </button>
+                    <strong>✅ Cuenta de Tutor Creada Exitosamente!</strong><br>
+                    <table style='margin-top: 10px;'>
+                        <tr>
+                            <td style='padding: 5px;'><strong>Nombre:</strong></td>
+                            <td style='padding: 5px;'>" . htmlentities($tutor_info['name']) . "</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 5px;'><strong>Email (Usuario):</strong></td>
+                            <td style='padding: 5px;'><code>" . htmlentities($tutor_info['email']) . "</code></td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 5px;'><strong>Contraseña:</strong></td>
+                            <td style='padding: 5px;'><code style='background: #fff3cd; padding: 3px 6px;'>" . htmlentities($tutor_info['password']) . "</code></td>
+                        </tr>
+                    </table>
+                    <p style='margin-top: 10px; margin-bottom: 0;'>
+                        <strong>⚠️ Importante:</strong> Entrega estas credenciales al padre/tutor de familia. Puede cambiar su contraseña después de primer acceso.
+                    </p>
                 </div>";
                 
-                $msg = "Estudiante agregado correctamente. Tutor vinculado exitosamente.";
+                $msg = "✅ Estudiante agregado correctamente. Tutor vinculado exitosamente.";
             } else {
-                $error = "Error al crear la cuenta del tutor.";
+                $error = "❌ Error al crear la cuenta del tutor.";
             }
         } elseif ($tutor_option == 'existing') {
             // ASIGNAR TUTOR EXISTENTE
@@ -142,12 +156,12 @@ if (isset($_POST['submit'])) {
             
             if ($tutor_id) {
                 if (linkTutorToStudent($dbh, $student_id, $tutor_id, $relationship)) {
-                    $msg = "Estudiante agregado correctamente. Tutor asignado exitosamente.";
+                    $msg = "✅ Estudiante agregado correctamente. Tutor asignado exitosamente.";
                 } else {
-                    $error = "Error al asignar el tutor.";
+                    $error = "❌ Error al asignar el tutor.";
                 }
             } else {
-                $error = "Por favor selecciona un tutor existente.";
+                $error = "⚠️ Por favor selecciona un tutor existente.";
             }
         }
         
@@ -270,34 +284,31 @@ if (isset($_POST['import_excel'])) {
                                     <!-- Formulario para agregar estudiante manualmente -->
                                     <form class="row" method="post">
                                         <div class="form-group col-md-6">
-                                            <label>Nombre Completo</label>
-                                            <input type="text" name="fullanme" class="form-control" required>
+                                            <label>Nombre Completo *</label>
+                                            <input type="text" name="fullanme" class="form-control" placeholder="Ej: Juan Pérez López" required>
                                         </div>
                                         <div class="form-group col-md-6">
-                                            <label>ID Rol</label>
-                                            <input type="text" name="rollid" class="form-control" maxlength="5" required>
-                                        </div>
-                                        <div class="form-group col-md-6">
-                                            <label>Correo</label>
-                                            <input type="email" name="emailid" class="form-control" required>
+                                            <label>Correo del Alumno *</label>
+                                            <input type="email" name="emailid" class="form-control" placeholder="Ej: juan.perez@ipt.edu.mx" required>
+                                            <small class="text-muted">Este email será usado para login del tutor</small>
                                         </div>
                                         <div class="form-group col-md-6">
                                             <label>CURP</label>
-                                            <input type="text" name="curp" class="form-control" maxlength="18" required>
+                                            <input type="text" name="curp" class="form-control" maxlength="18">
                                         </div>
                                         <div class="form-group col-md-6">
-                                            <label>Año</label>
+                                            <label>Año *</label>
                                             <select name="class" class="form-control" required>
                                                 <option value="">Seleccionar Año</option>
                                                 <?php
-                                                // Llena las opciones de clase desde la BD
-                                                $sql = "SELECT * FROM tblclasses";
+                                                // Llena las opciones de clase desde la BD - Ahora con educationLevel
+                                                $sql = "SELECT * FROM vw_classes_for_enrollment";
                                                 $query = $dbh->prepare($sql);
                                                 $query->execute();
                                                 $results = $query->fetchAll(PDO::FETCH_OBJ);
                                                 foreach ($results as $result) {
                                                     echo '<option value="' . $result->id . '">' .
-                                                        htmlentities($result->ClassName) . ' - Sección ' . htmlentities($result->Section) . '</option>';
+                                                        htmlentities($result->ClassName_display) . '</option>';
                                                 }
                                                 ?>
                                             </select>
@@ -306,41 +317,59 @@ if (isset($_POST['import_excel'])) {
                                         <!-- SECCIÓN DE TUTOR (Padres de Familia) -->
                                         <div class="form-group col-md-12">
                                             <hr>
-                                            <h5 style="margin-top: 10px;">Información del Tutor (Padre/Madre de Familia)</h5>
+                                            <h5 style="margin-top: 10px; color: #238D15;">
+                                                <i class="fa fa-family"></i> Información del Tutor (Padre/Madre de Familia)
+                                            </h5>
+                                            <small class="text-muted">El tutor podrá ver calificaciones y descargar boletas usando el email del alumno</small>
                                         </div>
                                         
                                         <div class="form-group col-md-12">
+                                            <label><strong>Elegir opción:</strong></label>
                                             <div class="form-check">
-                                                <label class="form-check-label" for="tutor_create">
-                                                    Crear nuevo tutor (cuenta de acceso)
-                                                </label>
                                                 <input class="form-check-input" type="radio" name="tutor_option" id="tutor_create" value="create" checked onchange="toggleTutorFields()">
+                                                <label class="form-check-label" for="tutor_create">
+                                                    ✏️ <strong>Crear nuevo tutor</strong> - Generar cuenta nueva
+                                                </label>
                                             </div>
                                             <div class="form-check">
-                                                <label class="form-check-label" for="tutor_existing">
-                                                    Asignar tutor existente
-                                                </label>
                                                 <input class="form-check-input" type="radio" name="tutor_option" id="tutor_existing" value="existing" onchange="toggleTutorFields()">
+                                                <label class="form-check-label" for="tutor_existing">
+                                                    👤 <strong>Asignar tutor existente</strong> - Si el padre ya tiene cuenta
+                                                </label>
                                             </div>
                                         </div>
                                         
                                         <!-- Campos para CREAR nuevo tutor -->
-                                        <div id="create_tutor_fields" style="display: block;">
+                                        <div id="create_tutor_fields" style="display: block; background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                                            <h6 style="margin-top: 0;">📝 Datos del Nuevo Tutor</h6>
                                             <div class="form-group col-md-6">
-                                                <label>Nombre del Tutor</label>
+                                                <label>Nombre del Tutor *</label>
                                                 <input type="text" name="tutor_name" class="form-control" placeholder="Ej: María García López">
+                                                <small class="text-muted">Nombre completo del padre/madre</small>
                                             </div>
                                             <div class="form-group col-md-6">
-                                                <label>Email del Tutor</label>
-                                                <input type="email" name="tutor_email" class="form-control" placeholder="Se genera automáticamente si no se ingresa">
+                                                <label>Email del Tutor *</label>
+                                                <input type="email" name="tutor_email" class="form-control" placeholder="Ej: maria.garcia@ipt.edu.mx">
+                                                <small class="text-muted">Email con el que accederá a su portal</small>
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label>Relación con el Estudiante</label>
+                                                <select name="relationship_type" class="form-control">
+                                                    <option value="padre">Padre</option>
+                                                    <option value="madre">Madre</option>
+                                                    <option value="abuelo">Abuelo/a</option>
+                                                    <option value="tutor_legal">Tutor Legal</option>
+                                                    <option value="otro">Otro</option>
+                                                </select>
                                             </div>
                                         </div>
                                         
                                         <!-- Campos para SELECCIONAR tutor existente -->
-                                        <div id="existing_tutor_fields" style="display: none;">
+                                        <div id="existing_tutor_fields" style="display: none; background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                                            <h6 style="margin-top: 0;">👤 Seleccionar Tutor Existente</h6>
                                             <div class="form-group col-md-6">
-                                                <label>Seleccionar Tutor Existente</label>
-                                                <select name="existing_tutor_id" class="form-control">
+                                                <label>Tutor Disponible *</label>
+                                                <select name="existing_tutor_id" class="form-control" id="tutor_select">
                                                     <option value="">-- Seleccionar Tutor --</option>
                                                     <?php
                                                     // Obtener lista de tutores existentes
@@ -353,19 +382,18 @@ if (isset($_POST['import_excel'])) {
                                                     }
                                                     ?>
                                                 </select>
+                                                <small class="text-muted">Selecciona un padre/madre que ya tenga cuenta</small>
                                             </div>
-                                        </div>
-                                        
-                                        <!-- Tipo de relación (común a ambos) -->
-                                        <div class="form-group col-md-6">
-                                            <label>Relación con el Estudiante</label>
-                                            <select name="relationship_type" class="form-control">
-                                                <option value="padre">Padre</option>
-                                                <option value="madre">Madre</option>
-                                                <option value="abuelo">Abuelo/a</option>
-                                                <option value="tutor_legal">Tutor Legal</option>
-                                                <option value="otro">Otro</option>
-                                            </select>
+                                            <div class="form-group col-md-6">
+                                                <label>Relación con el Estudiante</label>
+                                                <select name="relationship_type" class="form-control">
+                                                    <option value="padre">Padre</option>
+                                                    <option value="madre">Madre</option>
+                                                    <option value="abuelo">Abuelo/a</option>
+                                                    <option value="tutor_legal">Tutor Legal</option>
+                                                    <option value="otro">Otro</option>
+                                                </select>
+                                            </div>
                                         </div>
                                         
                                         <div class="form-group col-md-12">

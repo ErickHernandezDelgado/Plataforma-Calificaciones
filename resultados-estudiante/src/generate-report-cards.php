@@ -22,6 +22,7 @@ if (!$students) die("No hay alumnos en este grupo.");
 // Preparar Dompdf
 $options = new Options();
 $options->set('isHtml5ParserEnabled', true);
+$options->set('isRemoteEnabled', true); // Permitir imágenes locales (file://) y remotas
 $options->set('defaultFont', 'Arial');
 $dompdf = new Dompdf($options);
 

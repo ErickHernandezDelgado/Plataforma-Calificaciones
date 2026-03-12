@@ -22,6 +22,7 @@ if (!isset($_SESSION['alogin']) || !in_array($_SESSION['role'], ['admin', 'direc
 // Procesamiento de POST (crear/eliminar asignaciones)
 $msg = "";
 $error = "";
+$teacher_id_param = intval($_GET['teacherid'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? null;
@@ -35,23 +36,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$teacher_id || !$subject_id || !$class_id) {
             $error = "Por favor selecciona maestro, materia y clase.";
         } else {
-            // Verificar que no existe asignación duplicada
-            $sql = "SELECT Id FROM tblteacher_subject 
-                    WHERE TeacherId = :tid AND SubjectId = :sid AND ClassId = :cid";
-            $check = $dbh->prepare($sql);
-            $check->execute([':tid' => $teacher_id, ':sid' => $subject_id, ':cid' => $class_id]);
+            // VALIDACIÓN FK 1: Verificar que teacher existe
+            $sql_check_teacher = "SELECT Id FROM tblteachers WHERE Id = :tid AND Status = 1";
+            $check_teacher = $dbh->prepare($sql_check_teacher);
+            $check_teacher->execute([':tid' => $teacher_id]);
             
-            if ($check->rowCount() > 0) {
-                $error = "Esta asignación ya existe.";
+            if ($check_teacher->rowCount() == 0) {
+                $error = "El maestro seleccionado no existe o está inactivo.";
             } else {
-                // Insertar nueva asignación
-                $sql = "INSERT INTO tblteacher_subject (TeacherId, SubjectId, ClassId) 
-                        VALUES (:tid, :sid, :cid)";
-                $insert = $dbh->prepare($sql);
-                if ($insert->execute([':tid' => $teacher_id, ':sid' => $subject_id, ':cid' => $class_id])) {
-                    $msg = "Asignación creada exitosamente.";
+                // VALIDACIÓN FK 2: Verificar que subject existe
+                $sql_check_subject = "SELECT id FROM tblsubjects WHERE id = :sid";
+                $check_subject = $dbh->prepare($sql_check_subject);
+                $check_subject->execute([':sid' => $subject_id]);
+                
+                if ($check_subject->rowCount() == 0) {
+                    $error = "La materia seleccionada no existe.";
                 } else {
-                    $error = "Error al crear la asignación.";
+                    // VALIDACIÓN FK 3: Verificar que class existe
+                    $sql_check_class = "SELECT id FROM tblclasses WHERE id = :cid";
+                    $check_class = $dbh->prepare($sql_check_class);
+                    $check_class->execute([':cid' => $class_id]);
+                    
+                    if ($check_class->rowCount() == 0) {
+                        $error = "El grupo seleccionado no existe.";
+                    } else {
+                        // VALIDACIÓN FK 4: CRÍTICA - Verificar que la materia esté asignada al grupo
+                        $sql_check_combination = "SELECT id FROM tblsubjectcombination 
+                                                 WHERE SubjectId = :sid AND ClassId = :cid AND status = 1";
+                        $check_combination = $dbh->prepare($sql_check_combination);
+                        $check_combination->execute([':sid' => $subject_id, ':cid' => $class_id]);
+                        
+                        if ($check_combination->rowCount() == 0) {
+                            $error = "Error: La materia NO está asignada a este grupo. "
+                                   . "Primero asigna la materia al grupo en Gestionar Materias.";
+                        } else {
+                            // Verificar que no existe asignación duplicada
+                            $sql = "SELECT Id FROM tblteacher_subject 
+                                    WHERE TeacherId = :tid AND SubjectId = :sid AND ClassId = :cid";
+                            $check = $dbh->prepare($sql);
+                            $check->execute([':tid' => $teacher_id, ':sid' => $subject_id, ':cid' => $class_id]);
+                            
+                            if ($check->rowCount() > 0) {
+                                $error = "Esta asignación ya existe.";
+                            } else {
+                                // Insertar nueva asignación
+                                $sql = "INSERT INTO tblteacher_subject (TeacherId, SubjectId, ClassId) 
+                                        VALUES (:tid, :sid, :cid)";
+                                $insert = $dbh->prepare($sql);
+                                if ($insert->execute([':tid' => $teacher_id, ':sid' => $subject_id, ':cid' => $class_id])) {
+                                    $msg = "Asignación creada exitosamente.";
+                                } else {
+                                    $error = "Error al crear la asignación. Inténtalo de nuevo.";
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -60,29 +99,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Eliminar asignación
         $assignment_id = intval($_POST['assignment_id'] ?? 0);
         
-        $sql = "DELETE FROM tblteacher_subject WHERE Id = :id";
-        $delete = $dbh->prepare($sql);
-        if ($delete->execute([':id' => $assignment_id])) {
-            $msg = "Asignación eliminada.";
+        if (!$assignment_id) {
+            $error = "ID de asignación inválido.";
         } else {
-            $error = "Error al eliminar la asignación.";
+            $sql = "DELETE FROM tblteacher_subject WHERE Id = :id";
+            $delete = $dbh->prepare($sql);
+            if ($delete->execute([':id' => $assignment_id])) {
+                $msg = "Asignación eliminada correctamente.";
+            } else {
+                $error = "Error al eliminar la asignación.";
+            }
         }
     }
 }
 
 // Obtener todas las asignaciones actuales
-$sql = "SELECT ts.Id, t.FirstName, t.LastName, s.SubjectName, c.ClassName, c.Section, ts.AssignDate
+$sql = "SELECT ts.Id, t.TeacherName, t.TeacherEmail, s.SubjectName, c.ClassName, c.Section, c.AcademicYear
         FROM tblteacher_subject ts
         JOIN tblteachers t ON ts.TeacherId = t.Id
         JOIN tblsubjects s ON ts.SubjectId = s.id
         JOIN tblclasses c ON ts.ClassId = c.id
-        ORDER BY t.FirstName, t.LastName, c.ClassName, s.SubjectName";
+        ORDER BY t.TeacherName, c.AcademicYear DESC, c.ClassName, s.SubjectName";
 $query = $dbh->prepare($sql);
 $query->execute();
 $assignments = $query->fetchAll(PDO::FETCH_OBJ);
 
 // Obtener maestros, materias y clases para los selects
-$sql = "SELECT Id, FirstName, LastName FROM tblteachers ORDER BY FirstName, LastName";
+$sql = "SELECT Id, TeacherName, TeacherEmail FROM tblteachers WHERE Status = 1 ORDER BY TeacherName";
 $query = $dbh->prepare($sql);
 $query->execute();
 $teachers = $query->fetchAll(PDO::FETCH_OBJ);
@@ -92,10 +135,13 @@ $query = $dbh->prepare($sql);
 $query->execute();
 $subjects = $query->fetchAll(PDO::FETCH_OBJ);
 
-$sql = "SELECT id, ClassName, Section FROM tblclasses ORDER BY ClassName, Section";
+$sql = "SELECT id, ClassName, Section, AcademicYear FROM tblclasses ORDER BY AcademicYear DESC, ClassName, Section";
 $query = $dbh->prepare($sql);
 $query->execute();
 $classes = $query->fetchAll(PDO::FETCH_OBJ);
+
+// Si vino desde manage-teacher.php con ID, preseleccionar el maestro
+$selected_teacher = $teacher_id_param > 0 ? $teacher_id_param : '';
 ?>
 
 <!DOCTYPE html>
@@ -232,9 +278,11 @@ $classes = $query->fetchAll(PDO::FETCH_OBJ);
                                     <label for="teacher_id" class="form-label">Maestro</label>
                                     <select name="teacher_id" id="teacher_id" class="form-select" required>
                                         <option value="">-- Seleccionar Maestro --</option>
-                                        <?php foreach ($teachers as $teacher): ?>
-                                            <option value="<?= $teacher->Id ?>">
-                                                <?= htmlentities($teacher->FirstName . ' ' . $teacher->LastName) ?>
+                                        <?php foreach ($teachers as $teacher): 
+                                            $selected = ($selected_teacher == $teacher->Id) ? 'selected' : '';
+                                        ?>
+                                            <option value="<?= $teacher->Id ?>" <?php echo $selected; ?>>
+                                                <?= htmlentities($teacher->TeacherName) ?> (<?= htmlentities($teacher->TeacherEmail) ?>)
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -291,13 +339,11 @@ $classes = $query->fetchAll(PDO::FETCH_OBJ);
                                             <?php foreach ($assignments as $assign): ?>
                                                 <tr>
                                                     <td>
-                                                        <strong><?= htmlentities($assign->FirstName . ' ' . $assign->LastName) ?></strong>
+                                                        <strong><?= htmlentities($assign->TeacherName) ?></strong><br>
+                                                        <small class="text-muted"><?= htmlentities($assign->TeacherEmail) ?></small>
                                                     </td>
                                                     <td><?= htmlentities($assign->SubjectName) ?></td>
-                                                    <td><?= htmlentities($assign->ClassName . ' ' . $assign->Section) ?></td>
-                                                    <td>
-                                                        <?= $assign->AssignDate ? date('d/m/Y', strtotime($assign->AssignDate)) : 'N/A' ?>
-                                                    </td>
+                                                    <td><?= htmlentities($assign->ClassName . ' (' . $assign->Section . ') - ' . $assign->AcademicYear) ?></td>
                                                     <td>
                                                         <form method="POST" style="display:inline;">
                                                             <input type="hidden" name="action" value="delete">

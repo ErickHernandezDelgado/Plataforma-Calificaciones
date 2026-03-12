@@ -78,6 +78,8 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <th>#</th>
                                                 <th>Nombre del Maestro</th>
                                                 <th>Correo</th>
+                                                <th>Materias Asignadas</th>
+                                                <th># Grupos</th>
                                                 <th>Fecha de Ingreso</th>
                                                 <th>Estado</th>
                                                 <th>Acción</th>
@@ -85,8 +87,21 @@ if (strlen($_SESSION['alogin']) == "") {
                                         </thead>
                                         <tbody>
                                             <?php
-                                            // Consulta para obtener los datos de los maestros
-                                            $sql = "SELECT Id, TeacherName, TeacherEmail, JoiningDate, Status FROM tblteachers";
+                                            // Consulta mejorada con materias asignadas
+                                            $sql = "SELECT 
+                                                    t.Id,
+                                                    t.TeacherName,
+                                                    t.TeacherEmail,
+                                                    t.JoiningDate,
+                                                    t.Status,
+                                                    COUNT(DISTINCT ts.SubjectId) as num_subjects,
+                                                    COUNT(DISTINCT ts.ClassId) as num_classes,
+                                                    GROUP_CONCAT(DISTINCT s.SubjectName ORDER BY s.SubjectName SEPARATOR ', ') as materias
+                                            FROM tblteachers t
+                                            LEFT JOIN tblteacher_subject ts ON t.Id = ts.TeacherId
+                                            LEFT JOIN tblsubjects s ON ts.SubjectId = s.id
+                                            GROUP BY t.Id
+                                            ORDER BY t.TeacherName ASC";
                                             $query = $dbh->prepare($sql);
                                             $query->execute();
                                             $results = $query->fetchAll(PDO::FETCH_OBJ);
@@ -99,12 +114,36 @@ if (strlen($_SESSION['alogin']) == "") {
                                                         <td><?php echo htmlentities($cnt); ?></td>
                                                         <td><?php echo htmlentities($result->TeacherName); ?></td>
                                                         <td><?php echo htmlentities($result->TeacherEmail); ?></td>
+                                                        <td>
+                                                            <?php 
+                                                            if (empty($result->materias)) {
+                                                                echo '<em class="text-danger">-- Sin materias --</em>';
+                                                            } else {
+                                                                echo htmlentities($result->materias);
+                                                            }
+                                                            ?>
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge badge-info"><?php echo htmlentities($result->num_classes); ?></span>
+                                                        </td>
                                                         <td><?php echo htmlentities($result->JoiningDate); ?></td>
-                                                        <td><?php echo $result->Status == 1 ? 'Activo' : 'Bloqueado'; ?></td>
+                                                        <td>
+                                                            <?php 
+                                                            if ($result->Status == 1) {
+                                                                echo '<span class="badge badge-success">✓ Activo</span>';
+                                                            } else {
+                                                                echo '<span class="badge badge-danger">✗ Bloqueado</span>';
+                                                            }
+                                                            ?>
+                                                        </td>
                                                         <td>
                                                             <!-- Botón para editar -->
-                                                            <a href="edit-teacher.php?tid=<?php echo htmlentities($result->Id); ?>" class="btn btn-info">
-                                                                <i class="fa fa-edit" title="Editar Registro"></i>
+                                                            <a href="edit-teacher.php?tid=<?php echo htmlentities($result->Id); ?>" class="btn btn-info btn-sm" title="Editar datos">
+                                                                <i class="fa fa-edit"></i> Editar
+                                                            </a>
+                                                            <!-- Botón para asignar materias -->
+                                                            <a href="assign-teacher-subject.php?teacherid=<?php echo htmlentities($result->Id); ?>" class="btn btn-warning btn-sm" title="Asignar materias">
+                                                                <i class="fa fa-plus"></i> Asignar
                                                             </a>
                                                         </td>
                                                     </tr>

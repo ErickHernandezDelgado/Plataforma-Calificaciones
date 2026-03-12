@@ -13,6 +13,16 @@ if (strlen($_SESSION['alogin']) == "") {
     // Si no está logueado, redirige al login
     header("Location: index.php");
 } else {
+    // Variables de estado
+    $msg = '';
+    $error = '';
+    $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : date('Y');
+
+    // Obtener años académicos disponibles
+    $sql_years = "SELECT DISTINCT AcademicYear FROM tblclasses ORDER BY AcademicYear DESC";
+    $query_years = $dbh->prepare($sql_years);
+    $query_years->execute();
+    $available_years = $query_years->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!-- Incluye estilos de DataTables para la tabla -->
@@ -66,6 +76,21 @@ if (strlen($_SESSION['alogin']) == "") {
                                     </div>
                                 </div>
 
+                                <!-- Filtro por Año Académico -->
+                                <div class="panel-body" style="border-bottom: 1px solid #ddd; padding: 10px;">
+                                    <form method="POST" class="form-inline">
+                                        <label for="academic_year" style="margin-right: 10px;">Filtrar por Año:</label>
+                                        <select name="academic_year" id="academic_year" class="form-control" onchange="this.form.submit()" style="width: auto;">
+                                            <option value="">-- Todos los Años --</option>
+                                            <?php foreach ($available_years as $year): ?>
+                                                <option value="<?php echo $year['AcademicYear']; ?>" <?php echo ($selected_year == $year['AcademicYear']) ? 'selected' : ''; ?>>
+                                                    Año <?php echo $year['AcademicYear']; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </form>
+                                </div>
+
                                 <!-- Mensajes de éxito o error -->
                                 <?php if ($msg) { ?>
                                     <div class="alert alert-success left-icon-alert" role="alert">
@@ -84,23 +109,30 @@ if (strlen($_SESSION['alogin']) == "") {
                                             <tr>
                                                 <th>#</th>
                                                 <th>Nombre de Estudiante</th>
-                                                <th>ID Roll</th>
-                                                <th>Año</th>
-                                                <th>Fecha de Registro</th>
+                                                <th>Email</th>
+                                                <th>Grado</th>
+                                                <th>Tutor</th>
+                                                <th>Email Tutor</th>
+                                                <th>Pass Tutor</th>
                                                 <th>Estado</th>
                                                 <th>Acción</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php 
-                                            // Consulta SQL para obtener estudiantes junto con el nombre de su clase y sección
-                                            $sql = "SELECT tblstudents.StudentName, tblstudents.RollId, tblstudents.RegDate, 
-                                                           tblstudents.StudentId, tblstudents.Status, 
-                                                           tblclasses.ClassName, tblclasses.Section 
-                                                    FROM tblstudents 
-                                                    JOIN tblclasses ON tblclasses.id = tblstudents.ClassId";
+                                            // Consulta SQL mejorada usando la vista vw_student_with_tutor_complete
+                                            $sql = "SELECT * FROM vw_student_with_tutor_complete WHERE 1=1";
+                                            
+                                            if ($selected_year) {
+                                                $sql .= " AND AcademicYear = :year";
+                                            }
+                                            
+                                            $sql .= " ORDER BY ClassName ASC, Section ASC, StudentName ASC";
                                             
                                             $query = $dbh->prepare($sql);
+                                            if ($selected_year) {
+                                                $query->bindParam(':year', $selected_year, PDO::PARAM_INT);
+                                            }
                                             $query->execute();
                                             $results = $query->fetchAll(PDO::FETCH_OBJ);
 
@@ -111,25 +143,55 @@ if (strlen($_SESSION['alogin']) == "") {
                                                     <tr>
                                                         <td><?php echo htmlentities($cnt); ?></td>
                                                         <td><?php echo htmlentities($result->StudentName); ?></td>
-                                                        <td><?php echo htmlentities($result->RollId); ?></td>
-                                                        <td><?php echo htmlentities($result->ClassName); ?> (<?php echo htmlentities($result->Section); ?>)</td>
-                                                        <td><?php echo htmlentities($result->RegDate); ?></td>
+                                                        <td>
+                                                            <small style="color: #007bff;"><code><?php echo htmlentities($result->StudentEmail); ?></code></small>
+                                                        </td>
+                                                        <td><?php echo htmlentities($result->ClassName); ?> - Sección <?php echo htmlentities($result->Section); ?></td>
                                                         <td>
                                                             <?php 
-                                                            echo $result->Status == 1 ? 'Activo' : 'Bloqueado';
+                                                            if ($result->TutorEmail) {
+                                                                echo htmlentities($result->TutorEmail);
+                                                            } else {
+                                                                echo '<span style="color: red;">Sin asignar</span>';
+                                                            }
+                                                            ?>
+                                                        </td>
+                                                        <td>
+                                                            <?php 
+                                                            if ($result->TutorEmail) {
+                                                                echo '<small><code>' . htmlentities($result->email_login) . '</code></small>';
+                                                            } else {
+                                                                echo '--';
+                                                            }
+                                                            ?>
+                                                        </td>
+                                                        <td>
+                                                            <?php 
+                                                            if ($result->TutorPassword) {
+                                                                echo '<small style="background: #fff3cd; padding: 2px 5px;"><code>' . htmlentities($result->TutorPassword) . '</code></small>';
+                                                            } else {
+                                                                echo '--';
+                                                            }
+                                                            ?>
+                                                        </td>
+                                                        <td>
+                                                            <?php 
+                                                            echo $result->Status == 1 ? '<span style="color: green;">✓ Activo</span>' : '<span style="color: red;">✗ Bloqueado</span>';
                                                             ?>
                                                         </td>
                                                         <td>
                                                             <!-- Botón para editar información del estudiante -->
-                                                            <a href="edit-student.php?stid=<?php echo htmlentities($result->StudentId); ?>" class="btn btn-info">
-                                                                <i class="fa fa-edit" title="Editar Registro"></i> 
+                                                            <a href="edit-student.php?stid=<?php echo htmlentities($result->StudentId); ?>" class="btn btn-info btn-sm">
+                                                                <i class="fa fa-edit" title="Editar Registro"></i> Editar
                                                             </a>
                                                         </td>
                                                     </tr>
                                             <?php 
                                                     $cnt++;
                                                 }
-                                            } 
+                                            } else {
+                                                echo '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #999;">No hay estudiantes registrados para este año académico.</td></tr>';
+                                            }
                                             ?>
                                         </tbody>
                                     </table>
@@ -148,5 +210,4 @@ if (strlen($_SESSION['alogin']) == "") {
 <!-- Pie de página -->
 <?php include('includes/footer.php'); ?>
 
-<?php } ?>
-
+<?php } // Cierre del else de session check ?>
