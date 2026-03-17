@@ -2,8 +2,9 @@
 // Inicia la sesión
 session_start();
 
-// Desactiva la visualización de errores
-error_reporting(0);
+// Muestra todos los errores para depuración
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 // Incluye archivo de configuración (conexión a base de datos, etc.)
 include(__DIR__ . '/includes/config.php');
@@ -156,7 +157,22 @@ $error = "";
                                                     FROM tblresult 
                                                     JOIN tblstudents ON tblstudents.StudentId = tblresult.StudentId  
                                                     JOIN tblclasses ON tblclasses.id = tblresult.ClassId";
+                                            
+                                            // Si es maestro, filtrar por sus materias asignadas
+                                            if ($teacherRole === 'teacher' && $teacherId) {
+                                                $sql .= " WHERE tblresult.SubjectId IN (
+                                                    SELECT SubjectId FROM tblteacher_subject 
+                                                    WHERE TeacherId = :teacherid
+                                                )";
+                                            }
+                                            
                                             $query = $dbh->prepare($sql);
+                                            
+                                            // Bind teacher ID si es necesario
+                                            if ($teacherRole === 'teacher' && $teacherId) {
+                                                $query->bindParam(':teacherid', $teacherId, PDO::PARAM_INT);
+                                            }
+                                            
                                             $query->execute();
                                             $results = $query->fetchAll(PDO::FETCH_OBJ);
 

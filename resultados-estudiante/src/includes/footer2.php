@@ -24,4 +24,6 @@
  <script src="assets/js/main.js"></script>
  <script src="assets/js/production-chart.js"></script>
  <script src="assets/js/traffic-chart.js"></script>
- <script src="assets/js/task-list.js"></script> 
+ <script src="assets/js/task-list.js"></script>
+</body>
+</html>

@@ -2,11 +2,22 @@
 // Iniciar sesión
 session_start();
 
-// Desactiva la notificación de errores en producción
-error_reporting(0);
+// Mostrar todos los errores para depuración
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 // Conexión a la base de datos
 include(__DIR__ . '/includes/config.php');
+
+// Función auxiliar: generar contraseña aleatoria
+function generatePassword($length = 8) {
+    $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
+    $password = '';
+    for ($i = 0; $i < $length; $i++) {
+        $password .= $chars[random_int(0, strlen($chars) - 1)];
+    }
+    return $password;
+}
 
 // Verifica si hay sesión activa del administrador
 if (strlen($_SESSION['alogin']) == "") {
@@ -25,28 +36,50 @@ if (strlen($_SESSION['alogin']) == "") {
         // Nota: Las contraseñas de docentes se guardan en TEXTO PLANO para auditoría administrativa
         $password = generatePassword(8);
 
-        // Consulta para insertar nuevo docente
-        $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, JoiningDate, Status, Password)
-                VALUES(:teachername, :teacheremail, :gender, :dob, :joiningdate, :status, :password)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
-        $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
-        $query->bindParam(':gender', $gender, PDO::PARAM_STR);
-        $query->bindParam(':dob', $dob, PDO::PARAM_STR);
-        $query->bindParam(':joiningdate', $joiningdate, PDO::PARAM_STR);
-        $query->bindParam(':status', $status, PDO::PARAM_INT);
-        $query->bindParam(':password', $password, PDO::PARAM_STR);
-        $query->execute();
+        try {
+            // PASO 1: Insertar maestro en tblteachers
+            $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, JoiningDate, Status, Password)
+                    VALUES(:teachername, :teacheremail, :gender, :dob, :joiningdate, :status, :password)";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
+            $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
+            $query->bindParam(':gender', $gender, PDO::PARAM_STR);
+            $query->bindParam(':dob', $dob, PDO::PARAM_STR);
+            $query->bindParam(':joiningdate', $joiningdate, PDO::PARAM_STR);
+            $query->bindParam(':status', $status, PDO::PARAM_INT);
+            $query->bindParam(':password', $password, PDO::PARAM_STR);
+            $query->execute();
 
-        // Verificar si la inserción fue exitosa
-        $lastInsertId = $dbh->lastInsertId();
-        if ($lastInsertId) {
-            $msg_teacher_name = $teachername;
-            $msg_teacher_email = $teacheremail;
-            $msg_teacher_password = $password;
-            $msg = "Docente agregado correctamente.";
-        } else {
-            $error = "Algo salió mal. Inténtalo de nuevo.";
+            // Obtener el ID del maestro insertado
+            $lastInsertId = $dbh->lastInsertId();
+            
+            if ($lastInsertId) {
+                // PASO 2: Crear cuenta de acceso en tabla admin con el teacher_id
+                $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) 
+                              VALUES(:username, :password, :role, :teacher_id)";
+                $query_admin = $dbh->prepare($sql_admin);
+                $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
+                $query_admin->bindParam(':password', $password, PDO::PARAM_STR);  // TEXTO PLANO
+                $query_admin->bindParam(':role', $role = 'teacher', PDO::PARAM_STR);
+                $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
+                
+                if ($query_admin->execute()) {
+                    $msg_teacher_name = $teachername;
+                    $msg_teacher_email = $teacheremail;
+                    $msg_teacher_password = $password;
+                    $msg = "✅ Docente agregado correctamente. Se creó una cuenta de acceso automáticamente.";
+                    error_log("✅ Docente creado: TeacherId=$lastInsertId, Email=$teacheremail");
+                } else {
+                    $error_info = $query_admin->errorInfo();
+                    $error = "❌ Error al crear la cuenta de acceso: " . $error_info[2];
+                    error_log("❌ Error creating teacher login: " . $error_info[2]);
+                }
+            } else {
+                $error = "⚠️ Error al insertar el docente en la base de datos.";
+            }
+        } catch (Exception $e) {
+            $error = "❌ Error de base de datos: " . $e->getMessage();
+            error_log("Exception in add-teacher: " . $e->getMessage());
         }
     }
 ?>

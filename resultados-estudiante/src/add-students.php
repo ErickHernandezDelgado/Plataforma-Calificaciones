@@ -51,9 +51,13 @@ function createTutor($dbh, $tutor_email, $tutor_name) {
     
     if ($query->execute()) {
         $tutor_id = $dbh->lastInsertId();
+        error_log("✅ Tutor creado exitosamente: ID=$tutor_id, Email=$tutor_email");
         return ['id' => $tutor_id, 'email' => $tutor_email, 'password' => $password, 'name' => $tutor_name];
+    } else {
+        $error_info = $query->errorInfo();
+        error_log("❌ Error al crear tutor: " . $error_info[2]);
+        return null;
     }
-    return null;
 }
 
 // Función auxiliar: vincular tutor con estudiante

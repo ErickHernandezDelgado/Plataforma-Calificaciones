@@ -1,7 +1,8 @@
 <?php
-// Inicia sesión y oculta errores (puedes cambiar esto a error_reporting(E_ALL) para depuración)
+// Inicia sesión y muestra todos los errores para depuración
 session_start();
-error_reporting(0);
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 include(__DIR__ . '/includes/config.php');
 
 // Verifica si el usuario ha iniciado sesión y tiene el rol de administrador
@@ -97,7 +98,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                             <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
                                 <a class="dashboard-stat bg-white" href="manage-students.php">
                                     <?php
-                                    $sql_tutors = "SELECT DISTINCT student_tutor.teacherid FROM student_tutor";
+                                    $sql_tutors = "SELECT DISTINCT student_tutor.TutorId FROM student_tutor";
                                     $query_tutors = $dbh->prepare($sql_tutors);
                                     $query_tutors->execute();
                                     $totaltutors = $query_tutors->rowCount();

@@ -15,7 +15,7 @@ if (isset($_POST['login'])) {
     $password = $_POST['password'];
 
     // Buscar al usuario por nombre (sin comparar contraseña aún)
-    $sql = "SELECT id, UserName, Password, Role, teacher_id 
+    $sql = "SELECT id, UserName, Password, role, teacher_id 
             FROM admin 
             WHERE UserName = :username
             LIMIT 1";
@@ -29,9 +29,9 @@ if (isset($_POST['login'])) {
     if ($user && (password_verify($password, $user->Password) || md5($password) === $user->Password)) {
         // Autenticación exitosa
         $_SESSION['alogin'] = $user->UserName;
-        $_SESSION['role'] = $user->Role;
+        $_SESSION['role'] = $user->role;
 
-        if ($user->Role === 'teacher') {
+        if ($user->role === 'teacher') {
             // Si es maestro, verificar que tenga asignado un ID
             if (!is_null($user->teacher_id)) {
                 $_SESSION['teacherid'] = $user->teacher_id;
@@ -40,7 +40,7 @@ if (isset($_POST['login'])) {
             } else {
                 $msg = "Este usuario maestro no tiene asignado un ID de maestro.";
             }
-        } elseif ($user->Role === 'admin') {
+        } elseif ($user->role === 'admin') {
             // Si es admin, redirigir al dashboard normal
             header("Location: dashboard.php");
             exit;
