@@ -1,15 +1,20 @@
 <?php
-// Iniciar sesión
 session_start();
-
-// Mostrar todos los errores para depuración
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-
-// Conexión a la base de datos
 include(__DIR__ . '/includes/config.php');
 
-// Función auxiliar: generar contraseña aleatoria
+if (!isset($_SESSION['alogin'])) {
+    header("Location: index.php");
+    exit;
+}
+
+$page_title = "Agregar Docente";
+$msg = "";
+$error = "";
+$teacher_credentials = "";
+$lastInsertId = null;
+
 function generatePassword($length = 8) {
     $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
     $password = '';
@@ -19,201 +24,152 @@ function generatePassword($length = 8) {
     return $password;
 }
 
-// Verifica si hay sesión activa del administrador
-if (strlen($_SESSION['alogin']) == "") {
-    header("Location: index.php"); // Si no hay sesión, redirige al login
-} else {
-    // Si el formulario fue enviado
-    if (isset($_POST['submit'])) {
-        $teachername = $_POST['fullname'];        // Nombre del docente
-        $teacheremail = $_POST['emailid'];        // Correo electrónico
-        $gender = $_POST['gender'];               // Género seleccionado
-        $dob = $_POST['dob'];                     // Fecha de nacimiento
-        $joiningdate = date('Y-m-d H:i:s');       // Fecha actual como fecha de ingreso
-        $status = 1;                              // Activo por defecto
-        
-        // Generar contraseña en TEXTO PLANO (8 caracteres)
-        // Nota: Las contraseñas de docentes se guardan en TEXTO PLANO para auditoría administrativa
-        $password = generatePassword(8);
+if (isset($_POST['submit'])) {
+    $teacher_name = $_POST['fullname'] ?? '';
+    $teacher_email = $_POST['emailid'] ?? '';
+    $gender = $_POST['gender'] ?? 'Male';
+    $dob = $_POST['dob'] ?? date('Y-m-d');
+    $password = generatePassword(8);
 
-        try {
-            // PASO 1: Insertar maestro en tblteachers
-            $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, JoiningDate, Status, Password)
-                    VALUES(:teachername, :teacheremail, :gender, :dob, :joiningdate, :status, :password)";
-            $query = $dbh->prepare($sql);
-            $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
-            $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
-            $query->bindParam(':gender', $gender, PDO::PARAM_STR);
-            $query->bindParam(':dob', $dob, PDO::PARAM_STR);
-            $query->bindParam(':joiningdate', $joiningdate, PDO::PARAM_STR);
-            $query->bindParam(':status', $status, PDO::PARAM_INT);
-            $query->bindParam(':password', $password, PDO::PARAM_STR);
-            $query->execute();
+    try {
+        // Paso 1: Insertar en tblteachers
+        $sql1 = "INSERT INTO tblteachers (TeacherName, TeacherEmail, Gender, DOB, Status, Password) 
+                 VALUES(:name, :email, :gender, :dob, 1, :password)";
+        $q1 = $dbh->prepare($sql1);
+        $q1->bindParam(':name', $teacher_name, PDO::PARAM_STR);
+        $q1->bindParam(':email', $teacher_email, PDO::PARAM_STR);
+        $q1->bindParam(':gender', $gender, PDO::PARAM_STR);
+        $q1->bindParam(':dob', $dob, PDO::PARAM_STR);
+        $q1->bindParam(':password', $password, PDO::PARAM_STR);
+        $q1->execute();
 
-            // Obtener el ID del maestro insertado
-            $lastInsertId = $dbh->lastInsertId();
-            
-            if ($lastInsertId) {
-                // PASO 2: Crear cuenta de acceso en tabla admin con el teacher_id
-                $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) 
-                              VALUES(:username, :password, :role, :teacher_id)";
-                $query_admin = $dbh->prepare($sql_admin);
-                $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
-                $query_admin->bindParam(':password', $password, PDO::PARAM_STR);  // TEXTO PLANO
-                $query_admin->bindParam(':role', $role = 'teacher', PDO::PARAM_STR);
-                $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
+        $lastInsertId = $dbh->lastInsertId();
+
+        if ($lastInsertId) {
+            // Paso 2: Crear cuenta en admin
+            $sql2 = "INSERT INTO admin (UserName, Password, role, teacher_id) 
+                     VALUES(:username, :password, 'teacher', :teacher_id)";
+            $q2 = $dbh->prepare($sql2);
+            $q2->bindParam(':username', $teacher_email, PDO::PARAM_STR);
+            $q2->bindParam(':password', $password, PDO::PARAM_STR);
+            $q2->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
+
+            if ($q2->execute()) {
+                $teacher_credentials = "
+                <div class='alert alert-success'>
+                    <h4><strong>✅ Docente Creado Exitosamente</strong></h4>
+                    <table style='width: 100%; margin-top: 1rem;'>
+                        <tr><td style='padding: 0.5rem;'><strong>Nombre:</strong></td><td>" . htmlentities($teacher_name) . "</td></tr>
+                        <tr><td style='padding: 0.5rem;'><strong>Email (Usuario):</strong></td><td><code>" . htmlentities($teacher_email) . "</code></td></tr>
+                        <tr><td style='padding: 0.5rem;'><strong>Contraseña:</strong></td><td><code style='background: #fff3cd; padding: 0.3rem 0.6rem;'>" . htmlentities($password) . "</code></td></tr>
+                    </table>
+                    <p style='margin-top: 1rem; font-size: 0.9rem; color: #666;'>⚠️ Comparte estas credenciales con el docente. Puede cambiar su contraseña en primer acceso.</p>
+                </div>";
                 
-                if ($query_admin->execute()) {
-                    $msg_teacher_name = $teachername;
-                    $msg_teacher_email = $teacheremail;
-                    $msg_teacher_password = $password;
-                    $msg = "✅ Docente agregado correctamente. Se creó una cuenta de acceso automáticamente.";
-                    error_log("✅ Docente creado: TeacherId=$lastInsertId, Email=$teacheremail");
-                } else {
-                    $error_info = $query_admin->errorInfo();
-                    $error = "❌ Error al crear la cuenta de acceso: " . $error_info[2];
-                    error_log("❌ Error creating teacher login: " . $error_info[2]);
-                }
+                $msg = "✅ Docente agregado correctamente. Ahora puedes asignarle materias.";
+                error_log("✅ Docente creado: TeacherId=$lastInsertId, Email=$teacher_email");
             } else {
-                $error = "⚠️ Error al insertar el docente en la base de datos.";
+                $error = "❌ Error al crear la cuenta de acceso: " . $q2->errorInfo()[2];
+                error_log("❌ Error creating teacher login: " . $q2->errorInfo()[2]);
             }
-        } catch (Exception $e) {
-            $error = "❌ Error de base de datos: " . $e->getMessage();
-            error_log("Exception in add-teacher: " . $e->getMessage());
+        } else {
+            $error = "⚠️ Error al insertar el docente.";
         }
+    } catch (Exception $e) {
+        $error = "❌ Error: " . $e->getMessage();
+        error_log("Exception in add-teacher: " . $e->getMessage());
     }
+}
+
 ?>
+<?php include('includes/header.php'); ?>
 
-<!-- Incluye la barra superior -->
-<?php include('includes/topbar.php'); ?>
+<div style="max-width: 700px;">
+    <h1 style="color: #333; margin-bottom: 1.5rem;">
+        <i class="fas fa-chalkboard-user"></i> Agregar Docente
+    </h1>
 
-<!-- Contenedor principal -->
-<div class="content-wrapper">
-    <div class="content-container">
+    <?php if ($error): ?>
+        <div class="alert alert-danger">
+            <?php echo $error; ?>
+        </div>
+    <?php endif; ?>
 
-        <!-- Menú lateral -->
-        <?php include('includes/leftbar.php'); ?>
+    <?php if ($msg): ?>
+        <div class="alert alert-success">
+            <?php echo $msg; ?>
+        </div>
+    <?php endif; ?>
 
-        <!-- Contenido principal -->
-        <div class="main-page">
-            <div class="container-fluid">
+    <?php if ($teacher_credentials): ?>
+        <?php echo $teacher_credentials; ?>
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap;">
+            <a href="manage-teacher.php" class="btn btn-primary">
+                <i class="fas fa-list"></i> Ver Todos los Docentes
+            </a>
+            <a href="add-teacher.php" class="btn btn-success">
+                <i class="fas fa-plus"></i> Agregar Otro Docente
+            </a>
+            <?php if ($lastInsertId): ?>
+                <a href="assign-teacher-subject.php?teacherid=<?php echo $lastInsertId; ?>" class="btn btn-warning">
+                    <i class="fas fa-link"></i> Asignar Materias
+                </a>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 
-                <!-- Título de la página -->
-                <div class="row page-title-div">
-                    <div class="col-md-6">
-                        <h2 class="title">Agregar Docente</h2>
+    <?php if (!$teacher_credentials): ?>
+    <div class="card">
+        <div class="card-header">
+            Información del Docente
+        </div>
+        <div class="card-body">
+            <form method="post">
+                <div class="form-group">
+                    <label for="fullname">Nombre Completo *</label>
+                    <input type="text" id="fullname" name="fullname" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="emailid">Email *</label>
+                    <input type="email" id="emailid" name="emailid" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Género</label>
+                    <div style="display: flex; gap: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="radio" name="gender" value="Male" checked>
+                            Masculino
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="radio" name="gender" value="Female">
+                            Femenino
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="radio" name="gender" value="Other">
+                            Otro
+                        </label>
                     </div>
                 </div>
 
-                <!-- Breadcrumb -->
-                <div class="row breadcrumb-div">
-                    <div class="col-md-6">
-                        <ul class="breadcrumb">
-                            <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
-                            <li class="active">Agregar Docente</li>
-                        </ul>
-                    </div>
+                <div class="form-group">
+                    <label for="dob">Fecha de Nacimiento</label>
+                    <input type="date" id="dob" name="dob" class="form-control">
                 </div>
-            </div>
 
-            <!-- Sección del formulario -->
-            <section class="section">
-                <div class="container-fluid">
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div class="panel">
-                                <div class="panel-heading">
-                                    <div class="panel-title">
-                                        <h5>Completa la información del docente</h5>
-                                    </div>
-                                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button type="submit" name="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Agregar Docente
+                    </button>
+                    <a href="manage-teacher.php" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Cancelar
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
+</div>
 
-                                <div class="panel-body">
-                                    <!-- Mensajes de éxito o error -->
-                                    <?php if ($msg) { ?>
-                                        <div class="alert alert-success left-icon-alert" role="alert">
-                                            <strong>Bien hecho! </strong><?php echo htmlentities($msg); ?>
-                                        </div>
-                                        <!-- Mostrar credenciales de acceso del docente -->
-                                        <div class="alert alert-info" role="alert" style="margin-top: 15px;">
-                                            <h5><strong>Credenciales de Acceso del Docente</strong></h5>
-                                            <p style="margin: 10px 0;">
-                                                <strong>Nombre:</strong> <?php echo htmlentities($msg_teacher_name); ?><br>
-                                                <strong>Correo:</strong> <?php echo htmlentities($msg_teacher_email); ?><br>
-                                                <strong>Contraseña (Temporal):</strong><br>
-                                                <code style="display: inline-block; background-color: #fff3cd; padding: 8px 12px; border-radius: 4px; font-size: 14px; font-weight: bold; margin-top: 5px;">
-                                                    <?php echo htmlentities($msg_teacher_password); ?>
-                                                </code>
-                                            </p>
-                                            <p style="margin: 10px 0; font-size: 13px; color: #666;">
-                                                <em>⚠ Nota: Comparte estas credenciales con el docente. Pídele que cambie la contraseña en su primer acceso.</em>
-                                            </p>
-                                        </div>
-                                        <!-- Botones de acción post-registro -->
-                                        <div style="margin-top: 15px;">
-                                            <a href="manage-teacher.php" class="btn btn-primary">
-                                                <i class="fa fa-list"></i> Ver todos los docentes
-                                            </a>
-                                            <a href="add-teacher.php" class="btn btn-success">
-                                                <i class="fa fa-plus"></i> Agregar otro docente
-                                            </a>
-                                            <a href="assign-teacher-subject.php?teacherid=<?php echo htmlentities($lastInsertId); ?>" class="btn btn-warning">
-                                                <i class="fa fa-book"></i> Asignar materias
-                                            </a>
-                                        </div>
-                                    <?php } else if ($error) { ?>
-                                        <div class="alert alert-danger left-icon-alert" role="alert">
-                                            <strong>Algo salió mal!</strong> <?php echo htmlentities($error); ?>
-                                        </div>
-                                    <?php } ?>
-
-                                    <!-- Formulario para agregar docente -->
-                                    <form class="row" method="post">
-
-                                        <!-- Nombre completo -->
-                                        <div class="form-group col-md-6">
-                                            <label for="fullname" class="control-label">Nombre Completo</label>
-                                            <input type="text" name="fullname" class="form-control" id="fullname" required>
-                                        </div>
-
-                                        <!-- Correo electrónico -->
-                                        <div class="form-group col-md-6">
-                                            <label for="emailid" class="control-label">Correo</label>
-                                            <input type="email" name="emailid" class="form-control" id="emailid" required>
-                                        </div>
-
-                                        <!-- Género -->
-                                        <div class="form-group col-md-6">
-                                            <label class="control-label">Género</label><br>
-                                            <label><input type="radio" name="gender" value="Male" checked> Masculino</label>
-                                            <label><input type="radio" name="gender" value="Female"> Femenino</label>
-                                            <label><input type="radio" name="gender" value="Other"> Otro</label>
-                                        </div>
-
-                                        <!-- Fecha de nacimiento -->
-                                        <div class="form-group col-md-6">
-                                            <label for="dob" class="control-label">Fecha de Nacimiento</label>
-                                            <input type="date" name="dob" class="form-control" id="dob" required>
-                                        </div>
-
-                                        <!-- Botón de enviar -->
-                                        <div class="form-group col-md-12">
-                                            <button type="submit" name="submit" class="btn btn-success">Agregar</button>
-                                        </div>
-
-                                    </form>
-                                </div> <!-- /.panel-body -->
-                            </div> <!-- /.panel -->
-                        </div> <!-- /.col -->
-                    </div> <!-- /.row -->
-                </div> <!-- /.container-fluid -->
-            </section> <!-- /.section -->
-        </div> <!-- /.main-page -->
-    </div> <!-- /.content-container -->
-</div> <!-- /.content-wrapper -->
-
-<!-- Pie de página -->
 <?php include('includes/footer.php'); ?>
-
-<?php } // Cierre del else ?>
-

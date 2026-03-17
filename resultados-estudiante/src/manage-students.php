@@ -1,213 +1,140 @@
 <?php
-// Inicia sesión
 session_start();
-
-// Desactiva la notificación de errores
-error_reporting(0);
-
-// Incluye archivo de configuración (conexión a base de datos)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el administrador ha iniciado sesión
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no está logueado, redirige al login
+if (!isset($_SESSION['alogin'])) {
     header("Location: index.php");
-} else {
-    // Variables de estado
-    $msg = '';
-    $error = '';
-    $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : date('Y');
+    exit;
+}
 
-    // Obtener años académicos disponibles
-    $sql_years = "SELECT DISTINCT AcademicYear FROM tblclasses ORDER BY AcademicYear DESC";
-    $query_years = $dbh->prepare($sql_years);
-    $query_years->execute();
-    $available_years = $query_years->fetchAll(PDO::FETCH_ASSOC);
+$page_title = "Gestionar Estudiantes";
+$students = [];
+$search = $_GET['search'] ?? '';
+
+try {
+    $sql = "SELECT s.StudentId, s.StudentName, s.StudentEmail, s.CURP, c.ClassName, c.Section, s.Status, 
+                   GROUP_CONCAT(CONCAT(st.RelationshipType, ': ', a.UserName) SEPARATOR ', ') as tutors
+            FROM tblstudents s
+            LEFT JOIN tblclasses c ON s.ClassId = c.id
+            LEFT JOIN student_tutor st ON s.StudentId = st.StudentId
+            LEFT JOIN admin a ON st.TutorId = a.id
+            WHERE 1=1";
+
+    if ($search) {
+        $sql .= " AND (s.StudentName LIKE :search OR s.StudentEmail LIKE :search OR s.CURP LIKE :search)";
+    }
+
+    $sql .= " GROUP BY s.StudentId ORDER BY s.StudentName";
+
+    $query = $dbh->prepare($sql);
+    
+    if ($search) {
+        $search_term = "%$search%";
+        $query->bindParam(':search', $search_term, PDO::PARAM_STR);
+    }
+    
+    $query->execute();
+    $students = $query->fetchAll(PDO::FETCH_OBJ);
+} catch (Exception $e) {
+    error_log("Error fetching students: " . $e->getMessage());
+}
+
 ?>
+<?php include('includes/header.php'); ?>
 
-<!-- Incluye estilos de DataTables para la tabla -->
-<link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
+<div>
+    <h1 style="color: #333; margin-bottom: 1.5rem;">
+        <i class="fas fa-users"></i> Gestionar Estudiantes
+    </h1>
 
-<!-- Barra superior -->
-<?php include('includes/topbar.php'); ?>
-
-<!-- Contenedor principal -->
-<div class="content-wrapper">
-    <div class="content-container">
-
-        <!-- Barra lateral -->
-        <?php include('includes/leftbar.php'); ?>
-
-        <!-- Contenido principal -->
-        <div class="main-page">
-            <div class="container-fluid">
-
-                <!-- Encabezado de página -->
-                <div class="row page-title-div">
-                    <div class="col-md-6">
-                        <h2 class="title">Gestión de Estudiantes</h2>
-                    </div>
+    <div class="card" style="margin-bottom: 2rem;">
+        <div class="card-body">
+            <form method="get" style="display: flex; gap: 1rem; align-items: flex-end;">
+                <div style="flex: 1;">
+                    <label for="search">Buscar Estudiante</label>
+                    <input 
+                        type="text" 
+                        id="search" 
+                        name="search" 
+                        class="form-control" 
+                        placeholder="Nombre, email o CURP"
+                        value="<?php echo htmlentities($search); ?>"
+                    >
                 </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-search"></i> Buscar
+                </button>
+                <a href="manage-students.php" class="btn btn-secondary">
+                    <i class="fas fa-redo"></i> Limpiar
+                </a>
+                <a href="add-students.php" class="btn btn-success">
+                    <i class="fas fa-plus"></i> Agregar
+                </a>
+            </form>
+        </div>
+    </div>
 
-                <!-- Breadcrumb de navegación -->
-                <div class="row breadcrumb-div">
-                    <div class="col-md-6">
-                        <ul class="breadcrumb">
-                            <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
-                            <li>Estudiantes</li>
-                            <li class="active">Gestión de Estudiantes</li>
-                        </ul>
-                    </div>
+    <div class="card">
+        <div class="card-header">
+            Total: <?php echo count($students); ?> estudiantes
+        </div>
+        <div class="card-body">
+            <?php if (count($students) > 0): ?>
+                <div style="overflow-x: auto;">
+                    <table class="table" style="font-size: 0.9rem;">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>CURP</th>
+                                <th>Año</th>
+                                <th>Tutor(es)</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($students as $idx => $student): ?>
+                                <tr>
+                                    <td><?php echo $idx + 1; ?></td>
+                                    <td><strong><?php echo htmlentities($student->StudentName); ?></strong></td>
+                                    <td><?php echo htmlentities($student->StudentEmail); ?></td>
+                                    <td><?php echo htmlentities($student->CURP ?? '-'); ?></td>
+                                    <td><?php echo htmlentities($student->ClassName . ' ' . $student->Section); ?></td>
+                                    <td style="font-size: 0.85rem;"><?php echo htmlentities($student->tutors ?? '-'); ?></td>
+                                    <td>
+                                        <span class="badge" style="padding: 0.3rem 0.6rem; border-radius: 4px; 
+                                            background: <?php echo $student->Status == 1 ? '#28a745' : '#dc3545'; ?>;
+                                            color: white; font-size: 0.85rem;">
+                                            <?php echo $student->Status == 1 ? 'Activo' : 'Inactivo'; ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="edit-student.php?stid=<?php echo $student->StudentId; ?>" class="btn btn-info" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+            <?php else: ?>
+                <div style="text-align: center; padding: 2rem;">
+                    <p style="color: #666;">
+                        <i class="fas fa-inbox" style="font-size: 2rem; display: block; margin-bottom: 1rem; opacity: 0.5;"></i>
+                        No hay estudiantes que mostrar
+                    </p>
+                    <a href="add-students.php" class="btn btn-success">
+                        <i class="fas fa-plus"></i> Agregar Primer Estudiante
+                    </a>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
 
-            <!-- Sección principal -->
-            <section class="section">
-                <div class="container-fluid">
-
-                    <div class="row">
-                        <div class="col-md-12">
-
-                            <!-- Panel que contiene la tabla de estudiantes -->
-                            <div class="panel">
-                                <div class="panel-heading">
-                                    <div class="panel-title">
-                                        <h5>Ver Información de Estudiante</h5>
-                                    </div>
-                                </div>
-
-                                <!-- Filtro por Año Académico -->
-                                <div class="panel-body" style="border-bottom: 1px solid #ddd; padding: 10px;">
-                                    <form method="POST" class="form-inline">
-                                        <label for="academic_year" style="margin-right: 10px;">Filtrar por Año:</label>
-                                        <select name="academic_year" id="academic_year" class="form-control" onchange="this.form.submit()" style="width: auto;">
-                                            <option value="">-- Todos los Años --</option>
-                                            <?php foreach ($available_years as $year): ?>
-                                                <option value="<?php echo $year['AcademicYear']; ?>" <?php echo ($selected_year == $year['AcademicYear']) ? 'selected' : ''; ?>>
-                                                    Año <?php echo $year['AcademicYear']; ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </form>
-                                </div>
-
-                                <!-- Mensajes de éxito o error -->
-                                <?php if ($msg) { ?>
-                                    <div class="alert alert-success left-icon-alert" role="alert">
-                                        <strong>Proceso Correcto! </strong><?php echo htmlentities($msg); ?>
-                                    </div>
-                                <?php } else if ($error) { ?>
-                                    <div class="alert alert-danger left-icon-alert" role="alert">
-                                        <strong>Algo salió mal! </strong><?php echo htmlentities($error); ?>
-                                    </div>
-                                <?php } ?>
-
-                                <!-- Cuerpo del panel con la tabla -->
-                                <div class="panel-body p-20">
-                                    <table id="example" class="display table table-striped table-bordered" cellspacing="0" width="100%">
-                                        <thead>
-                                            <tr>
-                                                <th>#</th>
-                                                <th>Nombre de Estudiante</th>
-                                                <th>Email</th>
-                                                <th>Grado</th>
-                                                <th>Tutor</th>
-                                                <th>Email Tutor</th>
-                                                <th>Pass Tutor</th>
-                                                <th>Estado</th>
-                                                <th>Acción</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php 
-                                            // Consulta SQL mejorada usando la vista vw_student_with_tutor_complete
-                                            $sql = "SELECT * FROM vw_student_with_tutor_complete WHERE 1=1";
-                                            
-                                            if ($selected_year) {
-                                                $sql .= " AND AcademicYear = :year";
-                                            }
-                                            
-                                            $sql .= " ORDER BY ClassName ASC, Section ASC, StudentName ASC";
-                                            
-                                            $query = $dbh->prepare($sql);
-                                            if ($selected_year) {
-                                                $query->bindParam(':year', $selected_year, PDO::PARAM_INT);
-                                            }
-                                            $query->execute();
-                                            $results = $query->fetchAll(PDO::FETCH_OBJ);
-
-                                            $cnt = 1;
-                                            if ($query->rowCount() > 0) {
-                                                foreach ($results as $result) {
-                                            ?>
-                                                    <tr>
-                                                        <td><?php echo htmlentities($cnt); ?></td>
-                                                        <td><?php echo htmlentities($result->StudentName); ?></td>
-                                                        <td>
-                                                            <small style="color: #007bff;"><code><?php echo htmlentities($result->StudentEmail); ?></code></small>
-                                                        </td>
-                                                        <td><?php echo htmlentities($result->ClassName); ?> - Sección <?php echo htmlentities($result->Section); ?></td>
-                                                        <td>
-                                                            <?php 
-                                                            if ($result->TutorEmail) {
-                                                                echo htmlentities($result->TutorEmail);
-                                                            } else {
-                                                                echo '<span style="color: red;">Sin asignar</span>';
-                                                            }
-                                                            ?>
-                                                        </td>
-                                                        <td>
-                                                            <?php 
-                                                            if ($result->TutorEmail) {
-                                                                echo '<small><code>' . htmlentities($result->email_login) . '</code></small>';
-                                                            } else {
-                                                                echo '--';
-                                                            }
-                                                            ?>
-                                                        </td>
-                                                        <td>
-                                                            <?php 
-                                                            if ($result->TutorPassword) {
-                                                                echo '<small style="background: #fff3cd; padding: 2px 5px;"><code>' . htmlentities($result->TutorPassword) . '</code></small>';
-                                                            } else {
-                                                                echo '--';
-                                                            }
-                                                            ?>
-                                                        </td>
-                                                        <td>
-                                                            <?php 
-                                                            echo $result->Status == 1 ? '<span style="color: green;">✓ Activo</span>' : '<span style="color: red;">✗ Bloqueado</span>';
-                                                            ?>
-                                                        </td>
-                                                        <td>
-                                                            <!-- Botón para editar información del estudiante -->
-                                                            <a href="edit-student.php?stid=<?php echo htmlentities($result->StudentId); ?>" class="btn btn-info btn-sm">
-                                                                <i class="fa fa-edit" title="Editar Registro"></i> Editar
-                                                            </a>
-                                                        </td>
-                                                    </tr>
-                                            <?php 
-                                                    $cnt++;
-                                                }
-                                            } else {
-                                                echo '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #999;">No hay estudiantes registrados para este año académico.</td></tr>';
-                                            }
-                                            ?>
-                                        </tbody>
-                                    </table>
-                                </div> <!-- /.panel-body -->
-                            </div> <!-- /.panel -->
-                        </div> <!-- /.col-md-12 -->
-                    </div> <!-- /.row -->
-
-                </div> <!-- /.container-fluid -->
-            </section> <!-- /.section -->
-
-        </div> <!-- /.main-page -->
-    </div> <!-- /.content-container -->
-</div> <!-- /.content-wrapper -->
-
-<!-- Pie de página -->
 <?php include('includes/footer.php'); ?>
-
-<?php } // Cierre del else de session check ?>

@@ -17,10 +17,14 @@
  */
 
 // Cargar archivo .env si existe (para desarrollo local)
-if (file_exists(__DIR__ . '/../../.env')) {
-    $env_values = parse_ini_file(__DIR__ . '/../../.env');
-    foreach ($env_values as $key => $value) {
-        putenv("$key=$value");
+if (file_exists(__DIR__ . '/.env')) {
+    $env_values = @parse_ini_file(__DIR__ . '/.env');
+    if (is_array($env_values) && !empty($env_values)) {
+        foreach ($env_values as $key => $value) {
+            if ($key && strlen($key) > 0) {
+                putenv("{$key}={$value}");
+            }
+        }
     }
 }
 
