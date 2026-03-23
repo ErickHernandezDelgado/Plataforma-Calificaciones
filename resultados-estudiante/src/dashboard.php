@@ -44,7 +44,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query1->execute();
                                     $totalstudents = $query1->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #4CAF50;">👨‍🎓 <?php echo htmlentities($totalstudents); ?></span>
+                                    <span class="number counter" style="color: #4CAF50;"> <?php echo htmlentities($totalstudents); ?></span>
                                     <span class="name">Estudiantes Activos</span>
                                 </a>
                             </div>
@@ -58,7 +58,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query_teachers->execute();
                                     $totalteachers = $query_teachers->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #2196F3;">👨‍🏫 <?php echo htmlentities($totalteachers); ?></span>
+                                    <span class="number counter" style="color: #2196F3;"> <?php echo htmlentities($totalteachers); ?></span>
                                     <span class="name">Docentes Activos</span>
                                 </a>
                             </div>
@@ -72,7 +72,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query->execute();
                                     $totalsubjects = $query->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #FF9800;">📚 <?php echo htmlentities($totalsubjects); ?></span>
+                                    <span class="number counter" style="color: #FF9800;"> <?php echo htmlentities($totalsubjects); ?></span>
                                     <span class="name">Materias Registradas</span>
                                 </a>
                             </div>
@@ -86,7 +86,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query2->execute();
                                     $totalclasses = $query2->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #9C27B0;">🎓 <?php echo htmlentities($totalclasses); ?></span>
+                                    <span class="number counter" style="color: #9C27B0;"> <?php echo htmlentities($totalclasses); ?></span>
                                     <span class="name">Años Escolares</span>
                                 </a>
                             </div>
@@ -103,7 +103,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query_tutors->execute();
                                     $totaltutors = $query_tutors->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #E91E63;">👨‍👩‍👧 <?php echo htmlentities($totaltutors); ?></span>
+                                    <span class="number counter" style="color: #E91E63;"> <?php echo htmlentities($totaltutors); ?></span>
                                     <span class="name">Tutores Registrados</span>
                                 </a>
                             </div>
@@ -117,7 +117,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query_assign->execute();
                                     $totalassign = $query_assign->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #F44336;">🔗 <?php echo htmlentities($totalassign); ?></span>
+                                    <span class="number counter" style="color: #F44336;"> <?php echo htmlentities($totalassign); ?></span>
                                     <span class="name">Docentes Asignados</span>
                                 </a>
                             </div>
@@ -131,17 +131,9 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     $query3->execute();
                                     $totalresults = $query3->rowCount();
                                     ?>
-                                    <span class="number counter" style="color: #00BCD4;">📊 <?php echo htmlentities($totalresults); ?></span>
+                                    <span class="number counter" style="color: #00BCD4;"> <?php echo htmlentities($totalresults); ?></span>
                                     <span class="name">Estudiantes con Calificaciones</span>
                                 </a>
-                            </div>
-
-                            <!-- Versión del sistema -->
-                            <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12 text-center">
-                                <div class="dashboard-stat bg-white">
-                                    <span class="number counter" style="color: #673AB7;">✨</span>
-                                    <span class="name">Sistema v4.0 Fase D+E</span>
-                                </div>
                             </div>
                         </div>
 
@@ -157,16 +149,6 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                                 </div>
                                             </div>
 
-                                            <!-- Mensajes de éxito o error (si existen) -->
-                                            <?php if ($msg) { ?>
-                                                <div class="alert alert-success left-icon-alert" role="alert">
-                                                    <strong>¡Bien hecho!</strong> <?php echo htmlentities($msg); ?>
-                                                </div>
-                                            <?php } else if ($error) { ?>
-                                                <div class="alert alert-danger left-icon-alert" role="alert">
-                                                    <strong>¡Error!</strong> <?php echo htmlentities($error); ?>
-                                                </div>
-                                            <?php } ?>
 
                                             <div class="panel-body p-20">
                                                 <!-- Tabla de resultados -->
@@ -232,5 +214,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
 
     <!-- Pie de página -->
     <?php include('includes/footer2.php'); ?>
+
+
 
 <?php } ?>

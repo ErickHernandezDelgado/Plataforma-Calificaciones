@@ -9,7 +9,7 @@
             left: 0;
             bottom: 0;
             width: 100%;
-            background-color: #3d85ed;
+            background-color: #0F9B3A;
             color: white;
             text-align: center;
         }
