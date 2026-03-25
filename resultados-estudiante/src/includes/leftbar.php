@@ -1,6 +1,4 @@
 <?php
-// Inicia la sesión para poder trabajar con variables de sesión
-session_start();
 
 // Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
@@ -39,8 +37,8 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <a href="#"><i class="fa fa-graduation-cap"></i> <span>Docentes</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
                         <li><a href="add-teacher.php"><i class="fa fa-plus"></i> <span>+ Agregar Docente</span></a></li>
-                        <li><a href="manage-teacher.php"><i class="fa fa-list"></i> <span>📋 Gestionar Docentes</span></a></li>
-                        <li><a href="assign-teacher-subject.php"><i class="fa fa-book"></i> <span>🔗 Asignar Materias</span></a></li>
+                        <li><a href="manage-teacher.php"><i class="fa fa-list"></i> <span>Gestionar Docentes</span></a></li>
+                        <li><a href="assign-teacher-subject.php"><i class="fa fa-book"></i> <span>Asignar Materias</span></a></li>
                     </ul>
                 </li>
 
@@ -49,7 +47,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <a href="#"><i class="fa fa-book"></i> <span>Materias</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
                         <li><a href="create-subject.php"><i class="fa fa-plus"></i> <span>+ Crear Materia</span></a></li>
-                        <li><a href="manage-subjects.php"><i class="fa fa-list"></i> <span>📋 Gestionar Materias Unificado</span></a></li>
+                        <li><a href="manage-subjects.php"><i class="fa fa-list"></i> <span>Gestionar Materias Unificado</span></a></li>
                     </ul>
                 </li>
 
@@ -58,7 +56,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <a href="#"><i class="fa fa-users"></i> <span>Estudiantes</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
                         <li><a href="add-students.php"><i class="fa fa-plus"></i> <span>+ Agregar Estudiante + Tutor</span></a></li>
-                        <li><a href="manage-students.php"><i class="fa fa-list"></i> <span>📋 Gestionar Estudiantes + Tutores</span></a></li>
+                        <li><a href="manage-students.php"><i class="fa fa-list"></i> <span>Gestionar Estudiantes + Tutores</span></a></li>
                     </ul>
                 </li>
 
@@ -67,8 +65,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <a href="#"><i class="fa fa-file-o"></i> <span>Calificaciones</span> <i class="fa fa-angle-right arrow"></i></a>
                     <ul class="child-nav">
                         <li><a href="add-result.php"><i class="fa fa-plus"></i> <span>+ Agregar Resultado (Período Dinámico)</span></a></li>
-                        <li><a href="manage-results.php"><i class="fa fa-list"></i> <span>📋 Gestionar Calificaciones</span></a></li>
-                        <li><a href="manage-results-sec.php"><i class="fa fa-bars"></i> <span>🎓 Secundaria</span></a></li>
+                        <li><a href="manage-results.php"><i class="fa fa-list"></i> <span>Gestionar Calificaciones</span></a></li>
                     </ul>
                 </li>
 
@@ -80,9 +77,6 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                         <li><a href="manage-notices.php"><i class="fa fa-bars"></i> <span>Gestionar Comunicado</span></a></li>
                     </ul>
                 </li>
-
-                <!-- Enlace para añadir nuevos usuarios al sistema -->
-                <li><a href="add-user.php"><i class="fa fa-key"></i> <span>Añadir Usuarios</span></a></li>
             </ul>
         </div>
     </div>

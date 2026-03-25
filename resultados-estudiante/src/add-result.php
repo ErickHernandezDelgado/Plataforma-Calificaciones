@@ -1,312 +1,251 @@
 <?php
-// Inicia la sesión
+/**
+ * add-result.php
+ * Sistema de Gestión de Calificaciones IPT
+ * Registro de resultados por materia y periodo
+ */
+
 session_start();
+// Cambiar a E_ALL para depuración en desarrollo, 0 en producción
+error_reporting(E_ALL); 
+ini_set('display_errors', 1);
 
-// Desactiva los reportes de error (útil en producción, pero no recomendado para desarrollo)
-error_reporting(0);
-
-// Incluye la configuración de la base de datos
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el usuario ha iniciado sesión
-if (strlen($_SESSION['alogin']) == "") {
-    // Redirige al login si no ha iniciado sesión
+// Verificación de Sesión
+if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
     header("Location: index.php");
-} else {
-    // Si se envió el formulario
-    if (isset($_POST['submit'])) {
+    exit;
+}
 
-        // Inicializa arreglo de calificaciones
-        $marks = array();
-        $class = $_POST['class']; // ID de clase (año y sección)
-        $studentid = $_POST['studentid']; // ID del estudiante
-        $mark = $_POST['marks']; // Array de calificaciones por materia
-        $trimestre = $_POST['trimestre'] ?? null; // NUEVO: Período (trimestre o bimestre)
-        
-        // VALIDACIÓN 1: Verificar que se seleccionó un período
-        if (empty($trimestre)) {
-            $error = "Por favor selecciona un período (Trimestre/Bimestre).";
+$msg = "";
+$error = "";
+
+// PROCESAMIENTO DEL FORMULARIO
+if (isset($_POST['submit'])) {
+    $class = $_POST['class'];
+    $studentid = $_POST['studentid'];
+    $mark = $_POST['marks']; // Array de calificaciones
+    $trimestre = $_POST['trimestre'] ?? null;
+
+    if (empty($trimestre)) {
+        $error = "Por favor selecciona un período (Trimestre/Bimestre).";
+    } else {
+        // 1. Obtener materias asignadas a la clase
+        $stmt = $dbh->prepare("SELECT tblsubjects.id 
+                               FROM tblsubjectcombination 
+                               JOIN tblsubjects ON tblsubjects.id = tblsubjectcombination.SubjectId 
+                               WHERE tblsubjectcombination.ClassId = :cid AND tblsubjectcombination.status = 1
+                               ORDER BY tblsubjects.SubjectName");
+        $stmt->execute([':cid' => $class]);
+        $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subjectIds)) {
+            $error = "No hay materias asignadas a este grupo.";
         } else {
-            // VALIDACIÓN 2: Obtener educationLevel del grupo para validar período
-            $sql_level = "SELECT educationLevel FROM tblclasses WHERE id = :cid";
-            $query_level = $dbh->prepare($sql_level);
-            $query_level->execute([':cid' => $class]);
-            $class_data = $query_level->fetch(PDO::FETCH_OBJ);
-            
-            if (!$class_data) {
-                $error = "El grupo seleccionado no existe.";
-            } else {
-                // Validar que el período corresponde al nivel educativo
-                $valid_periods = [];
-                if ($class_data->educationLevel == 'infantil') {
-                    $valid_periods = ['Bimestre 1', 'Bimestre 2', 'Bimestre 3', 'Bimestre 4', 'Bimestre 5'];
-                } else {
-                    // primaria y secundaria
-                    $valid_periods = ['Trimestre 1', 'Trimestre 2', 'Trimestre 3'];
-                }
-                
-                if (!in_array($trimestre, $valid_periods)) {
-                    $error = "El período seleccionado no es válido para este nivel educativo.";
-                } else {
-                    // Consulta las materias correspondientes a la clase seleccionada
-                    $stmt = $dbh->prepare("SELECT tblsubjects.SubjectName, tblsubjects.id 
-                                           FROM tblsubjectcombination 
-                                           JOIN tblsubjects ON tblsubjects.id = tblsubjectcombination.SubjectId 
-                                           WHERE tblsubjectcombination.ClassId = :cid AND tblsubjectcombination.status = 1
-                                           ORDER BY tblsubjects.SubjectName");
-                    $stmt->execute(array(':cid' => $class));
+            $insert_success = true;
+            $dbh->beginTransaction();
 
-                    // Almacena los IDs de las materias en el arreglo $sid1
-                    $sid1 = array();
-                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                        array_push($sid1, $row['id']);
-                    }
-                    
-                    // VALIDACIÓN 3: Verificar que la materia esté asignada al profesor (si hay FK)
-                    // Esta validación se realiza en get_student.php cuando se muestran las materias
-                    
-                    if (empty($sid1)) {
-                        $error = "No hay materias asignadas a este grupo. "
-                               . "Asigna materias en 'Gestionar Materias' primero.";
-                    } else {
-                        // Inserta los resultados en la tabla tblresult por cada materia
-                        $insert_success = true;
-                        for ($i = 0; $i < count($mark); $i++) {
-                            if (!empty($mark[$i])) { // Solo insertar si hay calificación
-                                $mar = $mark[$i]; // calificación
-                                $sid = $sid1[$i]; // ID de la materia correspondiente
-                                
-                                // SQL mejorado: rechazar si hay un resultado duplicado en el mismo período
-                                $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre) 
-                                        VALUES(:studentid, :class, :sid, :marks, :trimestre)";
-                                $query = $dbh->prepare($sql);
-                                $query->bindParam(':studentid', $studentid, PDO::PARAM_STR);
-                                $query->bindParam(':class', $class, PDO::PARAM_STR);
-                                $query->bindParam(':sid', $sid, PDO::PARAM_STR);
-                                $query->bindParam(':marks', $mar, PDO::PARAM_STR);
-                                $query->bindParam(':trimestre', $trimestre, PDO::PARAM_STR);
-                                
-                                if (!$query->execute()) {
-                                    $insert_success = false;
-                                    $error = "Error al guardar calificación de materia ID {$sid}. "
-                                           . "Es posible que ya existe un resultado para esta materia en este período.";
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if ($insert_success) {
-                            $msg = "Resultados agregados correctamente para el $trimestre.";
-                        }
+            try {
+                for ($i = 0; $i < count($mark); $i++) {
+                    if ($mark[$i] !== "") { // Solo si se ingresó un valor
+                        $val = $mark[$i];
+                        $sid = $subjectIds[$i];
+
+                        // Insertar resultado
+                        $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre) 
+                                VALUES(:studentid, :class, :sid, :marks, :trimestre)";
+                        $query = $dbh->prepare($sql);
+                        $query->execute([
+                            ':studentid' => $studentid,
+                            ':class' => $class,
+                            ':sid' => $sid,
+                            ':marks' => $val,
+                            ':trimestre' => $trimestre
+                        ]);
                     }
                 }
+                $dbh->commit();
+                $msg = "Resultados guardados correctamente para el $trimestre.";
+            } catch (Exception $e) {
+                $dbh->rollBack();
+                $error = "Error al guardar: " . $e->getMessage();
             }
         }
     }
+}
 ?>
-
-<!-- Script AJAX para obtener estudiantes y materias por clase, y actualizar períodos -->
-<script>
-    function getStudent(val) {
-        // Obtener el educationLevel del option seleccionado
-        var selectedOption = document.querySelector('#classid option:checked');
-        var educationLevel = selectedOption.getAttribute('data-level');
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IPT | Agregar Resultado</title>
+    <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
+    <link rel="stylesheet" href="css/font-awesome.min.css" media="screen">
+    <link rel="stylesheet" href="css/main.css" media="screen">
+    
+    <style>
+        /* Estilos de Diseño Moderno */
+        .main-card { background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); border: none; margin-bottom: 30px; }
+        .card-header-custom { background: #f8f9fa; border-bottom: 1px solid #edf2f9; padding: 25px; border-radius: 12px 12px 0 0; }
+        .card-title { color: #334155; font-weight: 700; margin: 0; display: flex; align-items: center; }
+        .card-title i { margin-right: 12px; color: #3b82f6; }
         
-        // Actualizar selector de trimestre/bimestre
-        var trimestreSelect = document.getElementById('trimestre');
-        trimestreSelect.innerHTML = '';
+        .form-section { padding: 25px; border-bottom: 1px solid #f1f5f9; }
+        .form-section-title { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 20px; display: block; }
         
-        if (educationLevel === 'infantil') {
-            var options = ['Bimestre 1', 'Bimestre 2', 'Bimestre 3', 'Bimestre 4', 'Bimestre 5'];
-        } else {
-            // primaria y secundaria usan trimestres
-            var options = ['Trimestre 1', 'Trimestre 2', 'Trimestre 3'];
-        }
+        .form-control { border-radius: 8px; border: 1px solid #e2e8f0; padding: 10px 15px; height: auto; transition: all 0.2s; }
+        .form-control:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
         
-        // Agregar opción vacía
-        var emptyOption = document.createElement('option');
-        emptyOption.value = '';
-        emptyOption.textContent = 'Seleccionar Período';
-        trimestreSelect.appendChild(emptyOption);
+        label { font-weight: 600; color: #475569; margin-bottom: 8px; }
+        .btn-save { background: #10b981; color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 700; transition: all 0.2s; width: 100%; text-transform: uppercase; }
+        .btn-save:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); }
         
-        // Agregar opciones
-        options.forEach(function(period) {
-            var option = document.createElement('option');
-            option.value = period;
-            option.textContent = period;
-            trimestreSelect.appendChild(option);
-        });
-        
-        // Carga lista de estudiantes
-        $.ajax({
-            type: "POST",
-            url: "get_student.php",
-            data: 'classid=' + val,
-            success: function(data) {
-                $("#studentid").html(data);
-            }
-        });
+        .subject-container { background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px dashed #cbd5e1; }
+        .alert-modern { border-radius: 10px; border: none; padding: 15px 20px; margin-bottom: 20px; }
+    </style>
+</head>
+<body class="top-navbar-fixed">
+    <div class="main-wrapper">
+        <?php include('includes/topbar.php'); ?>
+        <div class="content-wrapper">
+            <div class="content-container">
+                <?php 
+                if (isset($_SESSION['rol']) && $_SESSION['rol'] == 'teacher') {
+                    include('includes/leftbar-teacher.php');
+                } else {
+                    include('includes/leftbar.php');
+                }
+                ?>
 
-        // Carga materias
-        $.ajax({
-            type: "POST",
-            url: "get_student.php",
-            data: 'classid1=' + val,
-            success: function(data) {
-                $("#subject").html(data);
-            }
-        });
-    }
-</script>
+                <div class="main-page">
+                    <div class="container-fluid">
+                        <div class="row page-title-div">
+                            <div class="col-md-12">
+                                <h2 class="title">Carga de Calificaciones</h2>
+                                <p class="text-muted">Ingresa los resultados académicos por materia y período</p>
+                            </div>
+                        </div>
+                        
+                        <div class="row breadcrumb-div">
+                            <div class="col-md-12">
+                                <ul class="breadcrumb">
+                                    <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
+                                    <li class="active">Agregar Resultado</li>
+                                </ul>
+                            </div>
+                        </div>
 
-<!-- Script AJAX para cargar resultados actuales del estudiante -->
-<script>
-    function getresult(val, clid) {
-        var clid = $(".clid").val(); // ID de clase
-        var val = $(".stid").val(); // ID de estudiante
-        var abh = clid + '$' + val;
-        $.ajax({
-            type: "POST",
-            url: "get_student.php",
-            data: 'studclass=' + abh,
-            success: function(data) {
-                $("#reslt").html(data);
-            }
-        });
-    }
-</script>
+                        <section class="section">
+                            <div class="container-fluid">
+                                <div class="row">
+                                    <div class="col-md-10 col-md-offset-1">
+                                        
+                                        <?php if ($msg) { ?>
+                                            <div class="alert alert-success alert-modern"><i class="fa fa-check-circle"></i> <?php echo htmlentities($msg); ?></div>
+                                        <?php } else if ($error) { ?>
+                                            <div class="alert alert-danger alert-modern"><i class="fa fa-times-circle"></i> <?php echo htmlentities($error); ?></div>
+                                        <?php } ?>
 
-<!-- Incluye barra superior -->
-<?php include('includes/topbar.php'); ?>
+                                        <div class="main-card">
+                                            <div class="card-header-custom">
+                                                <h4 class="card-title"><i class="fa fa-edit"></i> Panel de Evaluación</h4>
+                                            </div>
 
-<!-- Contenedor principal -->
-<div class="content-wrapper">
-    <div class="content-container">
+                                            <form method="post">
+                                                <div class="form-section">
+                                                    <span class="form-section-title">1. Contexto Académico</span>
+                                                    <div class="row">
+                                                        <div class="col-md-6">
+                                                            <div class="form-group">
+                                                                <label>Grado y Grupo</label>
+                                                                <select name="class" class="form-control clid" id="classid" onChange="getStudent(this.value);" required>
+                                                                    <option value="">Seleccionar...</option>
+                                                                    <?php
+                                                                    $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
+                                                                    $query = $dbh->prepare($sql);
+                                                                    $query->execute();
+                                                                    foreach ($query->fetchAll(PDO::FETCH_OBJ) as $result) { ?>
+                                                                        <option value="<?php echo $result->id; ?>" data-level="<?php echo $result->educationLevel; ?>">
+                                                                            <?php echo htmlentities($result->ClassName . " (" . $result->Section . ") - " . ucfirst($result->educationLevel)); ?>
+                                                                        </option>
+                                                                    <?php } ?>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <div class="form-group">
+                                                                <label>Período Evaluativo</label>
+                                                                <select name="trimestre" id="trimestre" class="form-control" required>
+                                                                    <option value="">Selecciona un grupo primero</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
 
-        <!-- Barra lateral dependiendo del rol -->
-        <?php
-        if ($_SESSION['rol'] == 'teacher') {
-            include('includes/leftbar-teacher.php');
-        } else {
-            include('includes/leftbar.php'); // Para admin u otros roles
-        }
-        ?>
+                                                <div class="form-section">
+                                                    <span class="form-section-title">2. Estudiante</span>
+                                                    <div class="form-group">
+                                                        <label>Nombre del Alumno</label>
+                                                        <select name="studentid" class="form-control stid" id="studentid" required onChange="getresult(this.value);">
+                                                            <option value="">Esperando grupo...</option>
+                                                        </select>
+                                                    </div>
+                                                    <div id="reslt"></div>
+                                                </div>
 
-        <!-- Página principal -->
-        <div class="main-page">
-            <div class="container-fluid">
-                <!-- Título de la página -->
-                <div class="row page-title-div">
-                    <div class="col-md-6">
-                        <h2 class="title">Agregar Resultado</h2>
-                    </div>
-                </div>
+                                                <div class="form-section" style="border-bottom: none;">
+                                                    <span class="form-section-title">3. Registro de Materias</span>
+                                                    <div id="subject" class="subject-container">
+                                                        <p class="text-center text-muted m-0">Selecciona un estudiante para cargar su carga académica.</p>
+                                                    </div>
+                                                </div>
 
-                <!-- Ruta de navegación -->
-                <div class="row breadcrumb-div">
-                    <div class="col-md-6">
-                        <ul class="breadcrumb">
-                            <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
-                            <li class="active">Agregar Resultado</li>
-                        </ul>
+                                                <div class="p-25">
+                                                    <div class="row">
+                                                        <div class="col-md-4 col-md-offset-4">
+                                                            <button type="submit" name="submit" class="btn-save">
+                                                                <i class="fa fa-save"></i> Guardar Calificaciones
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
                     </div>
                 </div>
             </div>
-
-            <!-- Sección principal del formulario -->
-            <section class="section">
-                <div class="container-fluid">
-                    <div class="row">
-                        <div class="col-md-8 col-md-offset-2">
-                            <div class="panel">
-                                <div class="panel-body">
-
-                                    <!-- Mensajes de éxito o error -->
-                                    <?php if ($msg) { ?>
-                                        <div class="alert alert-success left-icon-alert" role="alert">
-                                            <strong>Proceso Correcto! </strong><?php echo htmlentities($msg); ?>
-                                        </div>
-                                    <?php } else if ($error) { ?>
-                                        <div class="alert alert-danger left-icon-alert" role="alert">
-                                            <strong>Algo salió mal! </strong> <?php echo htmlentities($error); ?>
-                                        </div>
-                                    <?php } ?>
-
-                                    <!-- Formulario de ingreso de resultados -->
-                                    <form method="post">
-                                        <!-- Selección de clase -->
-                                        <div class="form-group">
-                                            <label for="default" class="control-label">Año/Grupo</label>
-                                            <select name="class" class="form-control clid" id="classid" onChange="getStudent(this.value);" required>
-                                                <option value="">Seleccionar Año/Grupo</option>
-                                                <?php
-                                                $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
-                                                $query = $dbh->prepare($sql);
-                                                $query->execute();
-                                                $results = $query->fetchAll(PDO::FETCH_OBJ);
-                                                if ($query->rowCount() > 0) {
-                                                    foreach ($results as $result) {
-                                                ?>
-                                                        <option value="<?php echo htmlentities($result->id); ?>" data-level="<?php echo htmlentities($result->educationLevel); ?>">
-                                                            <?php echo htmlentities($result->ClassName); ?>&nbsp;(<?php echo htmlentities($result->Section); ?>)&nbsp;-&nbsp;<?php echo htmlentities(ucfirst($result->educationLevel)); ?>
-                                                        </option>
-                                                <?php }
-                                                } ?>
-                                            </select>
-                                        </div>
-
-                                        <!-- Selección de período (NUEVO: dinámico según educationLevel) -->
-                                        <div class="form-group">
-                                            <label for="trimestre" class="control-label">Período (Trimestre/Bimestre)</label>
-                                            <select name="trimestre" id="trimestre" class="form-control" required>
-                                                <option value="">Selecciona primero un grupo</option>
-                                            </select>
-                                            <small class="form-text text-muted">El período se ajusta automáticamente según el nivel educativo.</small>
-                                        </div>
-
-                                        <!-- Selección de estudiante -->
-                                        <div class="form-group">
-                                            <label for="date" class="control-label">Nombre del Estudiante</label>
-                                            <select name="studentid" class="form-control stid" id="studentid" required onChange="getresult(this.value);">
-                                                <option value="">Selecciona un grupo primero</option>
-                                            </select>
-                                        </div>
-
-                                        <!-- Resultados existentes -->
-                                        <div class="form-group">
-                                            <div id="reslt"></div>
-                                        </div>
-
-                                        <!-- Materias disponibles -->
-                                        <div class="form-group">
-                                            <label for="date" class="control-label">Materias y Calificaciones</label>
-                                            <div id="subject"></div>
-                                        </div>
-
-                                        <!-- Botón para enviar -->
-                                        <div class="form-group">
-                                            <button type="submit" name="submit" id="submit" class="btn btn-success">Guardar Resultados</button>
-                                        </div>
-                                    </form>
-                                    <!-- Fin del formulario -->
-
-                                </div>
-                            </div>
-                        </div>
-                        <!-- /.col-md-12 -->
-                    </div>
-                </div>
-            </section>
         </div>
-        <!-- /.main-page -->
     </div>
-    <!-- /.content-container -->
-</div>
-<!-- /.content-wrapper -->
 
-<!-- Pie de página -->
+    <script src="js/jquery/jquery-2.2.4.min.js"></script>
+    <script src="js/bootstrap/bootstrap.min.js"></script>
+    <script>
+        function getStudent(val) {
+            // Manejo dinámico de periodos
+            var level = $('#classid option:checked').data('level');
+            var $t = $('#trimestre').empty().append('<option value="">Seleccionar Período</option>');
+            var opts = (level === 'infantil') ? ['Bimestre 1', 'Bimestre 2', 'Bimestre 3', 'Bimestre 4', 'Bimestre 5'] : ['Trimestre 1', 'Trimestre 2', 'Trimestre 3'];
+            opts.forEach(o => $t.append(`<option value="${o}">${o}</option>`));
+
+            // Carga de estudiantes
+            $.post("get_student.php", {classid: val}, d => $("#studentid").html(d));
+            // Carga de materias
+            $.post("get_student.php", {classid1: val}, d => $("#subject").html(d));
+        }
+
+        function getresult(val) {
+            var cid = $(".clid").val();
+            $.post("get_student.php", {studclass: cid + '$' + val}, d => $("#reslt").html(d));
+        }
+    </script>
+</body>
+</html>
 <?php include('includes/footer.php'); ?>
-<?php include('includes/p_footer.php'); ?>
-
-<?php } ?>
-
