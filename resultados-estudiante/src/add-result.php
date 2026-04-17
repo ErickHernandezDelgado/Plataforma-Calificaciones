@@ -2,11 +2,10 @@
 /**
  * add-result.php
  * Sistema de Gestión de Calificaciones IPT
- * Registro de resultados por materia y periodo
+ * Registro de resultados por materia y periodo (Normalizado)
  */
 
 session_start();
-// Cambiar a E_ALL para depuración en desarrollo, 0 en producción
 error_reporting(E_ALL); 
 ini_set('display_errors', 1);
 
@@ -23,53 +22,67 @@ $error = "";
 
 // PROCESAMIENTO DEL FORMULARIO
 if (isset($_POST['submit'])) {
-    $class = $_POST['class'];
-    $studentid = $_POST['studentid'];
-    $mark = $_POST['marks']; // Array de calificaciones
-    $trimestre = $_POST['trimestre'] ?? null;
+    $class = intval($_POST['class']);
+    $studentid = intval($_POST['studentid']);
+    $mark = $_POST['marks'] ?? []; // Array de calificaciones
+    $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type_id|period_number"
 
-    if (empty($trimestre)) {
-        $error = "Por favor selecciona un período (Trimestre/Bimestre).";
+    if (empty($periodo_data)) {
+        $error = "Por favor selecciona un trimestre/bimestre.";
+    } elseif (empty($mark)) {
+        $error = "No hay materias asignadas a este grupo.";
     } else {
-        // 1. Obtener materias asignadas a la clase
-        $stmt = $dbh->prepare("SELECT tblsubjects.id 
-                               FROM tblsubjectcombination 
-                               JOIN tblsubjects ON tblsubjects.id = tblsubjectcombination.SubjectId 
-                               WHERE tblsubjectcombination.ClassId = :cid AND tblsubjectcombination.status = 1
-                               ORDER BY tblsubjects.SubjectName");
-        $stmt->execute([':cid' => $class]);
-        $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        // Parsear period_type_id y period_number del formato "1|1" o "2|2"
+        $periodo_parts = explode("|", $periodo_data);
+        $period_type_id = intval($periodo_parts[0] ?? 0);
+        $period_number = intval($periodo_parts[1] ?? 0);
 
-        if (empty($subjectIds)) {
-            $error = "No hay materias asignadas a este grupo.";
+        if ($period_type_id == 0 || $period_number == 0) {
+            $error = "Período inválido.";
         } else {
-            $insert_success = true;
-            $dbh->beginTransaction();
+            // 1. Obtener materias asignadas a la clase
+            $stmt = $dbh->prepare("SELECT id 
+                                   FROM tblsubjects 
+                                   WHERE id IN (
+                                       SELECT SubjectId FROM tblsubjectcombination 
+                                       WHERE ClassId = :cid AND status = 1
+                                   )
+                                   ORDER BY SubjectName");
+            $stmt->execute([':cid' => $class]);
+            $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-            try {
-                for ($i = 0; $i < count($mark); $i++) {
-                    if ($mark[$i] !== "") { // Solo si se ingresó un valor
-                        $val = $mark[$i];
-                        $sid = $subjectIds[$i];
+            if (empty($subjectIds)) {
+                $error = "No hay materias asignadas a este grupo.";
+            } else {
+                $dbh->beginTransaction();
 
-                        // Insertar resultado
-                        $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre) 
-                                VALUES(:studentid, :class, :sid, :marks, :trimestre)";
-                        $query = $dbh->prepare($sql);
-                        $query->execute([
-                            ':studentid' => $studentid,
-                            ':class' => $class,
-                            ':sid' => $sid,
-                            ':marks' => $val,
-                            ':trimestre' => $trimestre
-                        ]);
+                try {
+                    for ($i = 0; $i < count($mark); $i++) {
+                        if ($mark[$i] !== "" && isset($subjectIds[$i])) { 
+                            $val = intval($mark[$i]);  // marks es INT en la BD
+                            $sid = intval($subjectIds[$i]);
+
+                            // CORRECCIÓN: Insertar con period_type_id y period_number (estructura real de BD)
+                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, period_type_id, period_number, term) 
+                                    VALUES(:studentid, :classid, :subjectid, :marks, :ptid, :pnum, :term)";
+                            $query = $dbh->prepare($sql);
+                            $query->execute([
+                                ':studentid' => $studentid,
+                                ':classid' => $class,
+                                ':subjectid' => $sid,
+                                ':marks' => $val,
+                                ':ptid' => $period_type_id,
+                                ':pnum' => $period_number,
+                                ':term' => $period_number
+                            ]);
+                        }
                     }
+                    $dbh->commit();
+                    $msg = "✅ Resultados guardados correctamente.";
+                } catch (Exception $e) {
+                    $dbh->rollBack();
+                    $error = "❌ Error al guardar: " . $e->getMessage();
                 }
-                $dbh->commit();
-                $msg = "Resultados guardados correctamente para el $trimestre.";
-            } catch (Exception $e) {
-                $dbh->rollBack();
-                $error = "Error al guardar: " . $e->getMessage();
             }
         }
     }
@@ -87,24 +100,228 @@ if (isset($_POST['submit'])) {
     <link rel="stylesheet" href="css/main.css" media="screen">
     
     <style>
-        /* Estilos de Diseño Moderno */
-        .main-card { background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); border: none; margin-bottom: 30px; }
-        .card-header-custom { background: #f8f9fa; border-bottom: 1px solid #edf2f9; padding: 25px; border-radius: 12px 12px 0 0; }
-        .card-title { color: #334155; font-weight: 700; margin: 0; display: flex; align-items: center; }
-        .card-title i { margin-right: 12px; color: #3b82f6; }
+        /* ====== GENERAL ====== */
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
         
-        .form-section { padding: 25px; border-bottom: 1px solid #f1f5f9; }
-        .form-section-title { font-size: 12px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 20px; display: block; }
+        /* ====== MAIN CARD ====== */
+        .main-card { 
+            background: #fff; 
+            border-radius: 12px; 
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08); 
+            border: 1px solid #e2e8f0;
+            margin-bottom: 30px; 
+            overflow: hidden;
+        }
         
-        .form-control { border-radius: 8px; border: 1px solid #e2e8f0; padding: 10px 15px; height: auto; transition: all 0.2s; }
-        .form-control:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .card-header-custom { 
+            background: linear-gradient(135deg, #f8f9fa 0%, #f1f5f9 100%);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 25px; 
+            border-radius: 12px 12px 0 0; 
+        }
         
-        label { font-weight: 600; color: #475569; margin-bottom: 8px; }
-        .btn-save { background: #10b981; color: white; border: none; padding: 14px; border-radius: 8px; font-weight: 700; transition: all 0.2s; width: 100%; text-transform: uppercase; }
-        .btn-save:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); }
+        .card-title { 
+            color: #1e293b; 
+            font-weight: 700; 
+            margin: 0; 
+            display: flex; 
+            align-items: center;
+            font-size: 18px;
+        }
         
-        .subject-container { background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px dashed #cbd5e1; }
-        .alert-modern { border-radius: 10px; border: none; padding: 15px 20px; margin-bottom: 20px; }
+        .card-title i { 
+            margin-right: 12px; 
+            color: #3b82f6;
+            font-size: 20px;
+        }
+        
+        /* ====== FORM SECTIONS ====== */
+        .form-section { 
+            padding: 25px; 
+            border-bottom: 1px solid #f1f5f9; 
+        }
+        
+        .form-section:last-of-type {
+            border-bottom: none;
+        }
+        
+        .form-section-title { 
+            font-size: 12px; 
+            font-weight: 800; 
+            color: #64748b; 
+            text-transform: uppercase; 
+            letter-spacing: 1.2px; 
+            margin-bottom: 20px; 
+            display: block;
+            margin-top: 0;
+        }
+        
+        /* ====== FORM CONTROLS ====== */
+        .form-control { 
+            border-radius: 8px; 
+            border: 1px solid #e2e8f0; 
+            padding: 12px 15px; 
+            height: auto; 
+            transition: all 0.2s ease;
+            font-size: 14px;
+            width: 100%;
+            background-color: white;
+            color: #1e293b;
+        }
+        
+        .form-control:focus { 
+            border-color: #3b82f6; 
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            background-color: #ffffff;
+            outline: none;
+        }
+        
+        .form-control:disabled,
+        .form-control[disabled] {
+            background-color: #f1f5f9;
+            color: #94a3b8;
+        }
+        
+        label { 
+            font-weight: 600; 
+            color: #334155; 
+            margin-bottom: 10px;
+            display: block;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        /* ====== SUBJECT CONTAINER ====== */
+        .subject-container { 
+            background: #f8fafc; 
+            padding: 20px; 
+            border-radius: 10px; 
+            border: 1px dashed #cbd5e1;
+            line-height: 1.6;
+        }
+        
+        .subject-container .row {
+            margin-bottom: 12px;
+        }
+        
+        .subject-container .row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .subject-container p {
+            margin-top: 7px;
+            font-weight: 600;
+            color: #334155;
+            font-size: 14px;
+        }
+        
+        .subject-container input {
+            width: 100%;
+        }
+        
+        /* ====== ALERTS ====== */
+        .alert-modern { 
+            border-radius: 10px; 
+            border: none; 
+            padding: 15px 20px; 
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .alert-success.alert-modern {
+            background-color: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        
+        .alert-danger.alert-modern {
+            background-color: #fee2e2;
+            color: #7f1d1d;
+            border-left: 4px solid #ef4444;
+        }
+        
+        /* ====== BUTTONS ====== */
+        .btn-save { 
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white; 
+            border: none; 
+            padding: 14px 30px; 
+            border-radius: 8px; 
+            font-weight: 700; 
+            transition: all 0.2s ease;
+            width: 100%; 
+            text-transform: uppercase;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-save:hover { 
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px); 
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); 
+        }
+        
+        .btn-save:active {
+            transform: translateY(0);
+        }
+        
+        .btn-save:disabled { 
+            background: #cbd5e1; 
+            cursor: not-allowed; 
+            transform: none; 
+            box-shadow: none; 
+        }
+        
+        /* ====== RESPONSIVE ====== */
+        @media (max-width: 768px) {
+            .form-section {
+                padding: 20px 15px;
+            }
+            
+            .card-header-custom {
+                padding: 20px 15px;
+            }
+            
+            .card-title {
+                font-size: 16px;
+            }
+            
+            .subject-container {
+                padding: 15px;
+            }
+            
+            .form-section .row > div {
+                margin-bottom: 15px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .form-section {
+                padding: 15px 10px;
+            }
+            
+            .card-header-custom {
+                padding: 15px 10px;
+            }
+            
+            .form-control {
+                font-size: 16px; /* Prevent zoom on iOS */
+            }
+            
+            .btn-save {
+                padding: 12px 20px;
+            }
+        }
     </style>
 </head>
 <body class="top-navbar-fixed">
@@ -126,15 +343,6 @@ if (isset($_POST['submit'])) {
                             <div class="col-md-12">
                                 <h2 class="title">Carga de Calificaciones</h2>
                                 <p class="text-muted">Ingresa los resultados académicos por materia y período</p>
-                            </div>
-                        </div>
-                        
-                        <div class="row breadcrumb-div">
-                            <div class="col-md-12">
-                                <ul class="breadcrumb">
-                                    <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
-                                    <li class="active">Agregar Resultado</li>
-                                </ul>
                             </div>
                         </div>
 
@@ -161,7 +369,7 @@ if (isset($_POST['submit'])) {
                                                         <div class="col-md-6">
                                                             <div class="form-group">
                                                                 <label>Grado y Grupo</label>
-                                                                <select name="class" class="form-control clid" id="classid" onChange="getStudent(this.value);" required>
+                                                                <select name="class" class="form-control clid" id="classid" onChange="getPeriodos(this.value);" required>
                                                                     <option value="">Seleccionar...</option>
                                                                     <?php
                                                                     $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
@@ -178,7 +386,7 @@ if (isset($_POST['submit'])) {
                                                         <div class="col-md-6">
                                                             <div class="form-group">
                                                                 <label>Período Evaluativo</label>
-                                                                <select name="trimestre" id="trimestre" class="form-control" required>
+                                                                <select name="periodo_data" id="periodo_data" class="form-control" required>
                                                                     <option value="">Selecciona un grupo primero</option>
                                                                 </select>
                                                             </div>
@@ -200,14 +408,14 @@ if (isset($_POST['submit'])) {
                                                 <div class="form-section" style="border-bottom: none;">
                                                     <span class="form-section-title">3. Registro de Materias</span>
                                                     <div id="subject" class="subject-container">
-                                                        <p class="text-center text-muted m-0">Selecciona un estudiante para cargar su carga académica.</p>
+                                                        <p class="text-center text-muted m-0">Selecciona un grupo para cargar la carga académica.</p>
                                                     </div>
                                                 </div>
 
                                                 <div class="p-25">
                                                     <div class="row">
                                                         <div class="col-md-4 col-md-offset-4">
-                                                            <button type="submit" name="submit" class="btn-save">
+                                                            <button type="submit" name="submit" id="submit" class="btn-save">
                                                                 <i class="fa fa-save"></i> Guardar Calificaciones
                                                             </button>
                                                         </div>
@@ -228,23 +436,65 @@ if (isset($_POST['submit'])) {
     <script src="js/jquery/jquery-2.2.4.min.js"></script>
     <script src="js/bootstrap/bootstrap.min.js"></script>
     <script>
-        function getStudent(val) {
-            // Manejo dinámico de periodos
-            var level = $('#classid option:checked').data('level');
-            var $t = $('#trimestre').empty().append('<option value="">Seleccionar Período</option>');
-            var opts = (level === 'infantil') ? ['Bimestre 1', 'Bimestre 2', 'Bimestre 3', 'Bimestre 4', 'Bimestre 5'] : ['Trimestre 1', 'Trimestre 2', 'Trimestre 3'];
-            opts.forEach(o => $t.append(`<option value="${o}">${o}</option>`));
-
-            // Carga de estudiantes
-            $.post("get_student.php", {classid: val}, d => $("#studentid").html(d));
-            // Carga de materias
-            $.post("get_student.php", {classid1: val}, d => $("#subject").html(d));
+    function getPeriodos(val) {
+        // Obtenemos el nivel desde el atributo data-level del option seleccionado
+        var level = $('#classid option:selected').data('level');
+        var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
+        
+        // Generamos opciones según el nivel guardado en la base de datos
+        // 1|X para Bimestre, 2|X para Trimestre
+        if(level === 'infantil') {
+            for(var i=1; i<=5; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
+        } else {
+            for(var i=1; i<=3; i++) $t.append(`<option value="2|${i}">Trimestre ${i}</option>`);
         }
 
-        function getresult(val) {
-            var cid = $(".clid").val();
-            $.post("get_student.php", {studclass: cid + '$' + val}, d => $("#reslt").html(d));
+        // Carga de la lista de estudiantes
+        $.post("get_student.php", {classid: val}, function(data) {
+            $("#studentid").html(data);
+        });
+
+        // Carga de los inputs de materias (la tabla de captura)
+        $.post("get_student.php", {classid1: val}, function(data) {
+            $("#subject").html(data);
+        });
+    }
+
+    function getresult(val) {
+        var cid = $("#classid").val();
+        var periodo = $("#periodo_data").val(); 
+
+        if (periodo === "") {
+            alert("Por favor, selecciona primero un período evaluativo.");
+            $("#studentid").val(""); 
+            return;
         }
+
+        // Separamos el periodo para enviarlo a get_student.php
+        var periodoParts = periodo.split('|');
+        var fullData = cid + '$' + val + '$' + periodoParts[0] + '$' + periodoParts[1];
+
+        $.post("get_student.php", {
+            studclass: fullData
+        }, function(data) {
+            $("#reslt").html(data);
+            
+            // Si el mensaje indica que ya existen resultados, deshabilitamos el botón
+            if(data.toLowerCase().indexOf("ya cuenta con resultados") !== -1) {
+                $("#submit").attr("disabled", true);
+            } else {
+                $("#submit").attr("disabled", false);
+            }
+        });
+    }
+
+    // Resetear validación si cambian el período después de elegir alumno
+    $('#periodo_data').on('change', function() {
+        var studentSelected = $("#studentid").val();
+        if (studentSelected && studentSelected !== "") {
+            getresult(studentSelected);
+        }
+    });
     </script>
 </body>
 </html>

@@ -1,216 +1,519 @@
 <?php 
-// Inicia la sesión
 session_start();
-
-// Muestra todos los errores para depuración
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Incluye archivo de configuración (conexión a base de datos, etc.)
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el usuario ha iniciado sesión correctamente
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige al login
+if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
     header("Location: index.php");
     exit;
 }
 
-// Obtiene el ID y rol del maestro desde la sesión (si aplica)
-$teacherId = $_SESSION['teacherid'] ?? null;
-$teacherRole = $_SESSION['role'] ?? null;
-$teacherSubjectId = null;
+// Procesar actualización de calificaciones si se envía el formulario
+$msg = "";
+$error = "";
 
-// Si el usuario tiene rol de maestro y está autenticado
-if ($teacherRole === 'teacher' && $teacherId) {
-    // Consulta para obtener la materia asignada al maestro
-    $sql = "SELECT SubjectId FROM tblteacher_subject WHERE TeacherId = :teacherid LIMIT 1";
-    $query = $dbh->prepare($sql);
-    $query->bindParam(':teacherid', $teacherId, PDO::PARAM_INT);
-    $query->execute();
-    $res = $query->fetch(PDO::FETCH_ASSOC);
-
-    // Si se encuentra una materia, se asigna a la variable
-    if ($res) {
-        $teacherSubjectId = intval($res['SubjectId']);
+if (isset($_POST['update_marks'])) {
+    $mark_ids = $_POST['mark_id'] ?? [];
+    $mark_values = $_POST['mark_value'] ?? [];
+    
+    try {
+        $dbh->beginTransaction();
+        
+        foreach ($mark_ids as $idx => $mark_id) {
+            $mark_value = intval($mark_values[$idx] ?? 0);
+            $mark_id = intval($mark_id);
+            
+            $sql = "UPDATE tblresult SET marks = :marks WHERE id = :id";
+            $stmt = $dbh->prepare($sql);
+            $stmt->execute([':marks' => $mark_value, ':id' => $mark_id]);
+        }
+        
+        $dbh->commit();
+        $msg = "✅ Calificaciones actualizadas correctamente.";
+    } catch (Exception $e) {
+        $dbh->rollBack();
+        $error = "❌ Error al actualizar: " . $e->getMessage();
     }
 }
 
-// Variables para mensajes de éxito o error
-$msg = "";
-$error = "";
+$teacherId = $_SESSION['teacherid'] ?? null;
+$teacherRole = $_SESSION['rol'] ?? null;
 ?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IPT | Gestionar Resultados</title>
+    <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
+    <link rel="stylesheet" href="css/font-awesome.min.css" media="screen">
+    <link rel="stylesheet" href="css/main.css" media="screen">
+    <style>
+        /* ====== GENERAL ====== */
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        * { box-sizing: border-box; }
+        
+        /* ====== FILTER PANEL ====== */
+        .filter-panel { 
+            background: linear-gradient(135deg, #f8f9fa 0%, #f1f5f9 100%);
+            padding: 30px 25px;
+            border-radius: 12px; 
+            margin-bottom: 30px; 
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .filter-panel .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .filter-panel label {
+            display: block;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        /* ====== FORM CONTROLS ====== */
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            border-radius: 8px; 
+            border: 1px solid #e2e8f0;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            background-color: white;
+            color: #1e293b;
+        }
+        
+        .form-control:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            background-color: #ffffff;
+            outline: none;
+        }
+        
+        .form-control:disabled,
+        .form-control[disabled] {
+            background-color: #f1f5f9;
+            color: #94a3b8;
+        }
+        
+        /* ====== RESULT PANEL ====== */
+        .result-panel { 
+            background: white; 
+            border-radius: 12px; 
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            padding: 30px 25px; 
+            margin-top: 30px;
+            overflow-x: auto;
+        }
+        
+        .result-panel > div:first-child {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .result-panel h4 {
+            margin: 0 0 8px 0;
+            color: #1e293b;
+            font-weight: 700;
+            font-size: 18px;
+        }
+        
+        .result-panel h5 {
+            color: #334155;
+            font-weight: 700;
+            font-size: 16px;
+            margin-bottom: 20px;
+            margin-top: 25px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .result-panel h5 i {
+            margin-right: 10px;
+            color: #3b82f6;
+        }
+        
+        .result-panel p {
+            margin: 5px 0;
+            color: #64748b;
+            font-size: 14px;
+        }
+        
+        /* ====== MARK ROWS ====== */
+        .mark-row-period {
+            background: #f8fafc;
+            padding: 20px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .mark-row-period h6 {
+            color: #0f172a;
+            font-weight: 700;
+            margin: 0 0 20px 0;
+            font-size: 14px;
+        }
+        
+        .mark-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #f1f5f9;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .mark-row:last-child {
+            border-bottom: none;
+        }
+        
+        .mark-row label {
+            font-weight: 600;
+            color: #334155;
+            margin: 0;
+            flex: 1 1 60%;
+            min-width: 150px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .mark-input {
+            flex: 0 0 auto;
+            min-width: 100px;
+            padding: 10px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .mark-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        }
+        
+        /* ====== BUTTONS ====== */
+        .btn-update {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-update:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        
+        .btn-update:active {
+            transform: translateY(0);
+        }
+        
+        .btn-pdf {
+            background: linear-gradient(135deg, #059669 0%, #059669 100%);
+            color: black;
+            border: solid 1px #059669;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .btn-pdf:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+            background: linear-gradient(135deg, #0596684a 0%, #047857 100%);
+        }
+        
+        .btn-pdf:active {
+            transform: translateY(0);
+        }
+        
+        .btn-pdf:disabled {
+            background: #cbe1d7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        /* ====== ALERTS ====== */
+        .alert-custom {
+            border-radius: 10px;
+            border: none;
+            padding: 15px 20px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .alert-success.alert-custom {
+            background-color: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        
+        .alert-danger.alert-custom {
+            background-color: #fee2e2;
+            color: #7f1d1d;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .alert-info {
+            background-color: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-top: 20px;
+        }
+        
+        /* ====== TEXT UTILITIES ====== */
+        .text-muted {
+            color: #64748b;
+            font-size: 14px;
+        }
+        
+        .text-muted-custom {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        
+        .label {
+            display: inline-block;
+            background: #3b82f6;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* ====== RESPONSIVE DESIGN ====== */
+        @media (max-width: 768px) {
+            .filter-panel {
+                padding: 20px 15px;
+            }
+            
+            .filter-panel .row > div {
+                margin-bottom: 15px;
+            }
+            
+            .result-panel {
+                padding: 20px 15px;
+            }
+            
+            .mark-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            
+            .mark-row label {
+                flex: 1 1 100%;
+            }
+            
+            .mark-input {
+                width: 100%;
+            }
+            
+            .btn-update {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .result-panel h4 {
+                font-size: 16px;
+            }
+            
+            .result-panel h5 {
+                font-size: 14px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .filter-panel {
+                padding: 15px 10px;
+            }
+            
+            .result-panel {
+                padding: 15px 10px;
+            }
+            
+            .mark-row-period {
+                padding: 15px 15px;
+            }
+            
+            .form-control {
+                font-size: 16px; /* Prevent zoom on iOS */
+            }
+        }
+    </style>
+</head>
+<body class="top-navbar-fixed">
+    <div class="main-wrapper">
+        <?php include('includes/topbar.php'); ?>
+        <div class="content-wrapper">
+            <div class="content-container">
+                <?php 
+                if ($teacherRole == 'teacher') {
+                    include('includes/leftbar-teacher.php');
+                } else {
+                    include('includes/leftbar.php');
+                }
+                ?>
 
-<!-- Hoja de estilos para DataTables -->
-<link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
-
-<!-- Incluye barra superior -->
-<?php include('includes/topbar.php'); ?>
-
-<div class="content-wrapper">
-    <div class="content-container">
-
-        <!-- Incluye barra lateral -->
-        <?php include('includes/leftbar.php'); ?>
-
-        <div class="main-page">
-            <div class="container-fluid">
-
-                <!-- Encabezado de la página -->
-                <div class="row page-title-div">
-                    <div class="col-md-6">
-                        <h2 class="title">Gestionar Resultados</h2>
-                    </div>
-                </div>
-
-                <!-- Breadcrumb de navegación -->
-                <div class="row breadcrumb-div">
-                    <div class="col-md-6">
-                        <ul class="breadcrumb">
-                            <li><a href="dashboard.php"><i class="fa fa-home"></i> Inicio</a></li>
-                            <li>Resultados</li>
-                            <li class="active">Gestionar Resultados</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-
-            <!-- FORMULARIO PARA GENERAR PDF DE BOLETAS -->
-            <div class="container-fluid">
-                <div class="row">
-                    <div class="col-md-12">
-
-                        <!-- Formulario con selector de grupo para generar PDF -->
-                        <form method="GET" action="generate-report-cards.php" target="_blank" style="margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 6px;">
-                            <div class="form-group">
-                                <label for="classid"><strong>Seleccionar Grupo para Generar Boletas PDF:</strong></label>
-                                
-                                <!-- Selector de grupo -->
-                                <select name="classid" id="classid" class="form-control" required style="display: inline-block; width: auto; margin-right: 10px;">
-                                    <option value="">-- Seleccionar Grupo --</option>
-                                    <?php
-                                    // Consulta para obtener todos los grupos ordenados por nombre y sección
-                                    $sql = "SELECT id, ClassName, Section FROM tblclasses ORDER BY ClassName, Section";
-                                    $query = $dbh->prepare($sql);
-                                    $query->execute();
-                                    $classes = $query->fetchAll(PDO::FETCH_ASSOC);
-
-                                    // Genera las opciones del selector
-                                    foreach ($classes as $cls) {
-                                        echo '<option value="' . $cls['id'] . '">' . htmlentities($cls['ClassName'] . ' ' . $cls['Section']) . '</option>';
-                                    }
-                                    ?>
-                                </select>
-
-                                <!-- Botón para generar PDF -->
-                                <button type="submit" class="btn btn-primary">Generar PDF de Boletas</button>
+                <div class="main-page">
+                    <div class="container-fluid">
+                        <div class="row page-title-div">
+                            <div class="col-md-12">
+                                <h2 class="title">Gestionar Calificaciones de Estudiantes</h2>
+                                <p class="text-muted" style="margin-top: 10px;">Selecciona un grupo y estudiante para ver y editar sus calificaciones</p>
                             </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <!-- TABLA DE RESULTADOS -->
-            <section class="section">
-                <div class="container-fluid">
-                    <div class="row">
-                        <div class="col-md-12">
-
-                            <div class="panel">
-                                <div class="panel-heading">
-                                    <div class="panel-title">
-                                        <h5>Ver Información de Resultados</h5>
-                                    </div>
-                                </div>
-
-                                <!-- Mensaje de éxito o error -->
-                                <?php if ($msg) { ?>
-                                    <div class="alert alert-success left-icon-alert" role="alert">
-                                        <strong>Proceso Correcto! </strong><?php echo htmlentities($msg); ?>
-                                    </div>
-                                <?php } else if ($error) { ?>
-                                    <div class="alert alert-danger left-icon-alert" role="alert">
-                                        <strong>Algo salió mal! </strong> <?php echo htmlentities($error); ?>
-                                    </div>
-                                <?php } ?>
-
-                                <div class="panel-body p-20">
-
-                                    <!-- Tabla de resultados registrados -->
-                                    <table id="example" class="display table table-striped table-bordered" cellspacing="0" width="100%">
-                                        <thead>
-                                            <tr>
-                                                <th>#</th>
-                                                <th>Nombre de Estudiante</th>
-                                                <th>ID Roll</th>
-                                                <th>Año</th>
-                                                <th>Fecha de Registro</th>
-                                                <th>Estado</th>
-                                                <th>Acción</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php 
-                                            // Consulta para obtener estudiantes con resultados registrados
-                                            $sql = "SELECT DISTINCT tblstudents.StudentName, tblstudents.RollId, tblstudents.RegDate, tblstudents.StudentId, 
-                                                            tblstudents.Status, tblclasses.ClassName, tblclasses.Section
-                                                    FROM tblresult 
-                                                    JOIN tblstudents ON tblstudents.StudentId = tblresult.StudentId  
-                                                    JOIN tblclasses ON tblclasses.id = tblresult.ClassId";
-                                            
-                                            // Si es maestro, filtrar por sus materias asignadas
-                                            if ($teacherRole === 'teacher' && $teacherId) {
-                                                $sql .= " WHERE tblresult.SubjectId IN (
-                                                    SELECT SubjectId FROM tblteacher_subject 
-                                                    WHERE TeacherId = :teacherid
-                                                )";
-                                            }
-                                            
-                                            $query = $dbh->prepare($sql);
-                                            
-                                            // Bind teacher ID si es necesario
-                                            if ($teacherRole === 'teacher' && $teacherId) {
-                                                $query->bindParam(':teacherid', $teacherId, PDO::PARAM_INT);
-                                            }
-                                            
-                                            $query->execute();
-                                            $results = $query->fetchAll(PDO::FETCH_OBJ);
-
-                                            // Contador de filas
-                                            $cnt = 1;
-
-                                            // Recorre resultados y los muestra en la tabla
-                                            if ($query->rowCount() > 0) {
-                                                foreach ($results as $result) { ?>
-                                                    <tr>
-                                                        <td><?php echo htmlentities($cnt); ?></td>
-                                                        <td><?php echo htmlentities($result->StudentName); ?></td>
-                                                        <td><?php echo htmlentities($result->RollId); ?></td>
-                                                        <td><?php echo htmlentities($result->ClassName); ?> (<?php echo htmlentities($result->Section); ?>)</td>
-                                                        <td><?php echo htmlentities($result->RegDate); ?></td>
-                                                        <td><?php echo $result->Status == 1 ? 'Activo' : 'Bloqueado'; ?></td>
-                                                        <td>
-                                                            <!-- Botón para editar resultados del estudiante -->
-                                                            <a href="edit-result.php?stid=<?php echo htmlentities($result->StudentId); ?>" class="btn btn-info">
-                                                                <i class="fa fa-edit" title="Editar Registro"></i>
-                                                            </a>
-                                                        </td>
-                                                    </tr>
-                                            <?php $cnt++; }
-                                            } ?>
-                                        </tbody>
-                                    </table>
-
-                                </div>
-                            </div>
-
                         </div>
-                    </div> <!-- /.row -->
-                </div> <!-- /.container-fluid -->
-            </section> <!-- /.section -->
-        </div> <!-- /.main-page -->
-    </div> <!-- /.content-container -->
-</div> <!-- /.content-wrapper -->
+                    </div>
 
-<!-- Incluye el pie de página -->
-<?php include('includes/footer.php'); ?>
+                    <section class="section">
+                        <div class="container-fluid">
+                            <div class="row">
+                                <div class="col-md-10 col-md-offset-1">
+                                    
+                                    <?php if ($msg) { ?>
+                                        <div class="alert alert-success alert-custom"><i class="fa fa-check-circle"></i> <?php echo htmlentities($msg); ?></div>
+                                    <?php } else if ($error) { ?>
+                                        <div class="alert alert-danger alert-custom"><i class="fa fa-times-circle"></i> <?php echo htmlentities($error); ?></div>
+                                    <?php } ?>
+
+                                    <!-- Panel de Filtros -->
+                                    <div class="filter-panel">
+                                        <form id="filterForm" method="post">
+                                            <div class="row">
+                                                <div class="col-xs-12 col-sm-6 col-md-6">
+                                                    <div class="form-group">
+                                                        <label for="classid"><strong>Grado y Grupo</strong></label>
+                                                        <select id="classid" name="classid" class="form-control" required onChange="getStudents(this.value);">
+                                                            <option value="">-- Selecciona un grupo --</option>
+                                                            <?php
+                                                            $sql = "SELECT id, ClassName, Section FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
+                                                            $query = $dbh->prepare($sql);
+                                                            $query->execute();
+                                                            foreach ($query->fetchAll(PDO::FETCH_OBJ) as $class) { ?>
+                                                                <option value="<?php echo $class->id; ?>">
+                                                                    <?php echo htmlentities($class->ClassName . " (" . $class->Section . ")"); ?>
+                                                                </option>
+                                                            <?php } ?>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="col-xs-12 col-sm-6 col-md-6">
+                                                    <div class="form-group">
+                                                        <label for="studentid"><strong>Estudiante</strong></label>
+                                                        <select id="studentid" name="studentid" class="form-control" required onChange="getStudentResults(this.value);">
+                                                            <option value="">-- Selecciona un estudiante --</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="row">
+                                                <div class="col-xs-12">
+                                                    <button type="button" class="btn btn-pdf" onClick="generateGroupPDF();">
+                                                        <i class="fa fa-file-pdf-o"></i> Generar PDF del Grupo
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </form>
+                                    </div>
+
+                                    <!-- Panel de Resultados -->
+                                    <div id="resultsPanel"></div>
+
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    <?php include('includes/footer.php'); ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/jquery/jquery-2.2.4.min.js"></script>
+    <script src="js/bootstrap/bootstrap.min.js"></script>
+    <script>
+        function getStudents(classid) {
+            if (classid === '') {
+                $('#studentid').html('<option value="">-- Selecciona un estudiante --</option>');
+                $('#resultsPanel').html('');
+                return;
+            }
+            
+            $.post("get_student.php", {classid: classid}, function(data) {
+                $('#studentid').html(data);
+                $('#resultsPanel').html('');
+            });
+        }
+
+        function getStudentResults(studentid) {
+            if (studentid === '') {
+                $('#resultsPanel').html('');
+                return;
+            }
+            
+            var classid = $('#classid').val();
+            if (classid === '') {
+                alert('Por favor selecciona un grupo primero');
+                return;
+            }
+
+            $.post("get_student_results.php", {
+                studentid: studentid,
+                classid: classid
+            }, function(data) {
+                $('#resultsPanel').html(data);
+            });
+        }
+
+        function generateGroupPDF() {
+            var classid = $('#classid').val();
+            
+            if (!classid || classid === '') {
+                alert('Por favor selecciona un grupo primero');
+                return;
+            }
+            
+            // Abrir el generador de PDF en nueva ventana
+            var pdfUrl = 'generate-group-grades.php?classid=' + classid;
+            window.open(pdfUrl, '_blank');
+        }
+    </script>
+</body>
+</html>

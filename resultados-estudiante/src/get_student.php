@@ -1,63 +1,100 @@
 <?php
+/**
+ * get_student.php
+ * Versión corregida: Eliminada columna total_periods
+ */
 include(__DIR__ . '/includes/config.php');
+
+// 1. CARGA DE ESTUDIANTES PARA EL SELECTOR (Dropdown)
 if (!empty($_POST["classid"])) {
-  $cid = intval($_POST['classid']);
-  if (!is_numeric($cid)) {
+    $classid = intval($_POST['classid']);
+    
+    $stmt = $dbh->prepare("SELECT StudentName, StudentId FROM tblstudents WHERE ClassId = :id AND Status = 1 ORDER BY StudentName");
+    $stmt->execute([':id' => $classid]);
+    $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    echo htmlentities("invalid Class");
-    exit;
-  } else {
-    $stmt = $dbh->prepare("SELECT StudentName,StudentId FROM tblstudents WHERE ClassId= :id order by StudentName");
-    $stmt->execute(array(':id' => $cid));
-?><option value="">Selecciona Estudiante </option><?php
-                                                  while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                                                  ?>
-      <option value="<?php echo htmlentities($row['StudentId']); ?>"><?php echo htmlentities($row['StudentName']); ?></option>
-    <?php
-                                                  }
-                                                }
-                                              }
-                                              // Code for Subjects
-                                              if (!empty($_POST["classid1"])) {
-                                                $cid1 = intval($_POST['classid1']);
-                                                if (!is_numeric($cid1)) {
+    echo '<option value="">Seleccionar Estudiante</option>';
+    if (count($students) > 0) {
+        foreach ($students as $student) {
+            echo '<option value="' . htmlentities($student['StudentId']) . '">' . htmlentities($student['StudentName']) . '</option>';
+        }
+    } else {
+        echo '<option value="">No hay alumnos en este grupo</option>';
+    }
+}
 
-                                                  echo htmlentities("invalid Class");
-                                                  exit;
-                                                } else {
-                                                  $status = 0;
-                                                  $stmt = $dbh->prepare("SELECT tblsubjects.SubjectName,tblsubjects.id FROM tblsubjectcombination join  tblsubjects on  tblsubjects.id=tblsubjectcombination.SubjectId WHERE tblsubjectcombination.ClassId=:cid and tblsubjectcombination.status!=:stts order by tblsubjects.SubjectName");
-                                                  $stmt->execute(array(':cid' => $cid1, ':stts' => $status));
+// 2. CARGA DE MATERIAS (Crea los inputs de calificación)
+if (!empty($_POST["classid1"])) {
+    $classid1 = intval($_POST['classid1']);
 
-                                                  while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) { ?>
-      <p> <?php echo htmlentities($row['SubjectName']); ?><input type="text" name="marks[]" value="" class="form-control" required="" placeholder="Introducir puntos sobre 100" autocomplete="off"></p>
+    // CORRECCIÓN: Obtener educationLevel de tblclasses (no tblperiod_types que no existe)
+    $sql_period = "SELECT educationLevel FROM tblclasses WHERE id = :classid";
+    $stmt_period = $dbh->prepare($sql_period);
+    $stmt_period->execute([':classid' => $classid1]);
+    $period_info = $stmt_period->fetch(PDO::FETCH_ASSOC);
 
-<?php  }
-                                                }
-                                              }
+    // Determinar tipo de período basado en educationLevel
+    $label = "Materia";
+    if ($period_info) {
+        if ($period_info['educationLevel'] === 'infantil') {
+            $label = "Bimestrales (2 períodos)";
+        } elseif ($period_info['educationLevel'] === 'primaria' || $period_info['educationLevel'] === 'secundaria') {
+            $label = "Trimestrales (3 períodos)";
+        }
+    }
 
+    // Obtener Materias del grupo
+    $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
+                            FROM tblsubjects 
+                            WHERE id IN (
+                                SELECT SubjectId FROM tblsubjectcombination 
+                                WHERE ClassId = :id AND status = 1
+                            )
+                            ORDER BY SubjectName");
+    $stmt2->execute([':id' => $classid1]);
+    $subjects = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
-?>
+    if (count($subjects) > 0) {
+        // Mostramos el nombre del tipo de periodo (Bimestre o Trimestre) detectado
+        echo '<h5 class="form-section-title">Carga Académica (' . htmlentities($label) . '):</h5>';
+        
+        foreach ($subjects as $subject) {
+            echo '<div class="row" style="margin-bottom:15px;">
+                    <div class="col-md-8">
+                        <p style="margin-top:7px; font-weight:600;">' . htmlentities($subject['SubjectName']) . '</p>
+                    </div>
+                    <div class="col-md-4">
+                        <input type="number" name="marks[]" class="form-control" placeholder="0-10" min="0" max="10" step="0.1" required>
+                    </div>
+                  </div>';
+        }
+    } else {
+        echo '<p class="text-danger">No hay materias asignadas a este grupo.</p>';
+    }
+}
 
-<?php
-
+// 3. VALIDACIÓN DE DUPLICADOS
 if (!empty($_POST["studclass"])) {
-  $id = $_POST['studclass'];
-  $dta = explode("$", $id);
-  $id = $dta[0];
-  $id1 = $dta[1];
-  $query = $dbh->prepare("SELECT StudentId,ClassId FROM tblresult WHERE StudentId=:id1 and ClassId=:id ");
-  //$query= $dbh -> prepare($sql);
-  $query->bindParam(':id1', $id1, PDO::PARAM_STR);
-  $query->bindParam(':id', $id, PDO::PARAM_STR);
-  $query->execute();
-  $results = $query->fetchAll(PDO::FETCH_OBJ);
-  $cnt = 1;
-  if ($query->rowCount() > 0) { ?>
-    <p>
-      <?php
-      echo "<span style='color:red'> Los resutados de este estudiante ya fueron declarados </span>";
-      echo "<script>$('#submit').prop('disabled',true);</script>";
-      ?></p>
-<?php }
-} ?>
+    $data = explode("$", $_POST['studclass']);
+    if(count($data) >= 4) {
+        $cid = intval($data[0]);
+        $sid = intval($data[1]);
+        $ptid = intval($data[2]);      // period_type_id
+        $pnum = intval($data[3]);      // period_number
+
+        // CORRECCIÓN: Buscar en tblresult usando period_type_id y period_number (estructura real)
+        $sql = "SELECT id FROM tblresult 
+                WHERE StudentId = :sid AND ClassId = :cid AND period_type_id = :ptid AND period_number = :pnum
+                LIMIT 1";
+        $query = $dbh->prepare($sql);
+        $query->execute([':sid' => $sid, ':cid' => $cid, ':ptid' => $ptid, ':pnum' => $pnum]);
+
+        if ($query->rowCount() > 0) {
+            echo '<div class="alert alert-warning" style="margin-top:10px;">
+                    <i class="fa fa-exclamation-triangle"></i> 
+                    El alumno ya cuenta con resultados registrados para este período.
+                  </div>';
+        }
+    }
+}
+?>
