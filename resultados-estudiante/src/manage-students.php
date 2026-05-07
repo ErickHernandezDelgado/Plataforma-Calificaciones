@@ -1,6 +1,6 @@
 <?php
 session_start();
-error_reporting(E_ALL); // Cambiado a E_ALL para ver errores durante desarrollo
+error_reporting(E_ALL); 
 include(__DIR__ . '/includes/config.php');
 
 if (strlen($_SESSION['alogin']) == "") {
@@ -10,13 +10,10 @@ if (strlen($_SESSION['alogin']) == "") {
     // --- LÓGICA DE REGENERACIÓN DE CONTRASEÑA ---
     if (isset($_GET['reset_tutor_id'])) {
         $tutor_id = intval($_GET['reset_tutor_id']);
-        
-        // 1. Generar nueva clave aleatoria de 8 caracteres
         $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         $new_raw_pass = substr(str_shuffle($chars), 0, 8);
         $new_md5_pass = md5($new_raw_pass);
 
-        // 2. Actualizar en la tabla admin
         $sql_update = "UPDATE admin SET Password = :pass WHERE id = :id AND role = 'tutor'";
         $query_update = $dbh->prepare($sql_update);
         $query_update->bindParam(':pass', $new_md5_pass, PDO::PARAM_STR);
@@ -29,22 +26,45 @@ if (strlen($_SESSION['alogin']) == "") {
         }
     }
 
+    // --- LÓGICA DE ELIMINACIÓN DE ESTUDIANTE (Agregado por Auditoría) ---
+    if (isset($_GET['del_stid'])) {
+        $stid = intval($_GET['del_stid']);
+        
+        // Se recomienda que en la BD la relación tenga ON DELETE CASCADE 
+        // para borrar calificaciones automáticamente, si no, se borra solo al alumno.
+        $sql_del = "DELETE FROM tblstudents WHERE StudentId = :id";
+        $query_del = $dbh->prepare($sql_del);
+        $query_del->bindParam(':id', $stid, PDO::PARAM_INT);
+        
+        if ($query_del->execute()) {
+            $msg = "Estudiante eliminado correctamente del sistema.";
+        } else {
+            $error = "Error al intentar eliminar el registro.";
+        }
+    }
+
     $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : date('Y');
 
-    // Obtener años académicos disponibles
     $sql_years = "SELECT DISTINCT AcademicYear FROM tblclasses ORDER BY AcademicYear DESC";
     $query_years = $dbh->prepare($sql_years);
     $query_years->execute();
     $available_years = $query_years->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
-<link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
-<style>
-    /* ... Tus estilos existentes ... */
-    .btn-reset { background-color: #f59e0b; color: white; margin-left: 4px; }
-    .btn-reset:hover { background-color: #d97706; color: white; }
-    .alert-success { border-left: 5px solid #15803d; font-size: 16px; }
-</style>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
+    <style>
+        .btn-reset { background-color: #f59e0b; color: white; margin-left: 4px; }
+        .btn-reset:hover { background-color: #d97706; color: white; }
+        .btn-delete { background-color: #dc2626; color: white; margin-left: 4px; }
+        .btn-delete:hover { background-color: #991b1b; color: white; }
+        .alert-success { border-left: 5px solid #15803d; font-size: 16px; }
+        .alert-danger { border-left: 5px solid #b91c1c; font-size: 16px; }
+    </style>
+</head>
+<body>
 
 <?php include('includes/topbar.php'); ?>
 
@@ -77,8 +97,13 @@ if (strlen($_SESSION['alogin']) == "") {
                             <div class="panel-body p-20">
                                 <?php if(isset($msg) && $msg != ""){ ?>
                                     <div class="alert alert-success">
-                                        <strong><i class="fa fa-key"></i> ÉXITO:</strong> <?php echo $msg; ?>
-                                        <br><small>Copia esta contraseña antes de recargar la página.</small>
+                                        <strong><i class="fa fa-check-circle"></i> ÉXITO:</strong> <?php echo $msg; ?>
+                                    </div>
+                                <?php } ?>
+
+                                <?php if(isset($error) && $error != ""){ ?>
+                                    <div class="alert alert-danger">
+                                        <strong><i class="fa fa-times-circle"></i> ERROR:</strong> <?php echo $error; ?>
                                     </div>
                                 <?php } ?>
 
@@ -86,7 +111,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                     <table id="studentsTable" class="table table-hover" width="100%">
                                         <thead>
                                             <tr>
-                                                <th>ID</th>
+                                                <th>#</th>
                                                 <th>Estudiante</th>
                                                 <th>Grado / Sección</th>
                                                 <th>Acceso Tutor</th>
@@ -96,7 +121,6 @@ if (strlen($_SESSION['alogin']) == "") {
                                         </thead>
                                         <tbody>
                                             <?php 
-                                            // Asegúrate de que tu vista 'vw_student_with_tutor_complete' incluya el TutorId (el ID de la tabla admin)
                                             $sql = "SELECT * FROM vw_student_with_tutor_complete WHERE 1=1";
                                             if ($selected_year) { $sql .= " AND AcademicYear = :year"; }
                                             $sql .= " ORDER BY ClassName ASC, Section ASC, StudentName ASC";
@@ -147,6 +171,13 @@ if (strlen($_SESSION['alogin']) == "") {
                                                                 <i class="fa fa-refresh"></i>
                                                             </a>
                                                         <?php } ?>
+
+                                                        <a href="manage-students.php?del_stid=<?php echo $result->StudentId; ?>" 
+                                                           class="btn btn-delete btn-action" 
+                                                           title="Eliminar Estudiante"
+                                                           onclick="return confirm('¿Realmente deseas eliminar a este estudiante? Se borrará su historial académico y esta acción no se puede deshacer.')">
+                                                            <i class="fa fa-trash"></i>
+                                                        </a>
                                                     </td>
                                                 </tr>
                                             <?php } ?>
@@ -162,5 +193,7 @@ if (strlen($_SESSION['alogin']) == "") {
     </div>
 </div>
 
-<?php } ?>
 <?php include('includes/footer.php'); ?>
+</body>
+</html>
+<?php } ?>

@@ -3,6 +3,13 @@
  * get_student.php
  * Versión corregida: Eliminada columna total_periods
  */
+
+session_start();
+// Validación de Seguridad: Solo usuarios logueados
+if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
+    header("HTTP/1.1 403 Forbidden");
+    exit('Acceso denegado');
+}
 include(__DIR__ . '/includes/config.php');
 
 // 1. CARGA DE ESTUDIANTES PARA EL SELECTOR (Dropdown)
