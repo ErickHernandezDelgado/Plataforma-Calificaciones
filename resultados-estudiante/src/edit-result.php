@@ -3,16 +3,7 @@
  * edit-result.php
  * Actualización de calificaciones por periodo específico
  */
-session_start();
-error_reporting(E_ALL); // Cambiado a E_ALL para desarrollo
-ini_set('display_errors', 1);
-
-include(__DIR__ . '/includes/config.php');
-
-if (strlen($_SESSION['alogin']) == "") {
-    header("Location: index.php");
-    exit;
-}
+include(__DIR__ . '/includes/check-login.php');
 
 // Recibimos el ID de la calificación específica
 $resultid = intval($_GET['resultid'] ?? 0);

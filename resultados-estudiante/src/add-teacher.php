@@ -1,9 +1,13 @@
 <?php
-session_start();
+/**
+ * add-teacher.php
+ * Agregar nuevo docente al sistema
+ */
+include(__DIR__ . '/includes/check-login.php');
+
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 $msg = ""; $error = "";
-include(__DIR__ . '/includes/config.php');
 
 function generatePassword($length = 8) {
     $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
@@ -14,55 +18,51 @@ function generatePassword($length = 8) {
     return $password;
 }
 
-if (strlen($_SESSION['alogin']) == "") {
-    header("Location: index.php");
-    exit();
-} else {
-    if (isset($_POST['submit'])) {
-        $teachername = $_POST['fullname'];
-        $teacheremail = $_POST['emailid'];
-        $gender = $_POST['gender'];
-        $dob = $_POST['dob'];
-        $status = 1;
+// Procesar envío de formulario
+if (isset($_POST['submit'])) {
+    $teachername = $_POST['fullname'];
+    $teacheremail = $_POST['emailid'];
+    $gender = $_POST['gender'];
+    $dob = $_POST['dob'];
+    $status = 1;
 
-        $password_plana = generatePassword(8);
-        $password_md5 = md5($password_plana);
+    $password_plana = generatePassword(8);
+    $password_md5 = md5($password_plana);
 
-        try {
-            $dbh->beginTransaction(); 
-            $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, Status) VALUES(:teachername, :teacheremail, :gender, :dob, :status)";
-            $query = $dbh->prepare($sql);
-            $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
-            $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
-            $query->bindParam(':gender', $gender, PDO::PARAM_STR);
-            $query->bindParam(':dob', $dob, PDO::PARAM_STR);
-            $query->bindParam(':status', $status, PDO::PARAM_INT);
-            $query->execute();
+    try {
+        $dbh->beginTransaction(); 
+        $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, Status) VALUES(:teachername, :teacheremail, :gender, :dob, :status)";
+        $query = $dbh->prepare($sql);
+        $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
+        $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
+        $query->bindParam(':gender', $gender, PDO::PARAM_STR);
+        $query->bindParam(':dob', $dob, PDO::PARAM_STR);
+        $query->bindParam(':status', $status, PDO::PARAM_INT);
+        $query->execute();
 
-            $lastInsertId = $dbh->lastInsertId();
+        $lastInsertId = $dbh->lastInsertId();
 
-            if ($lastInsertId) {
-                $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) VALUES(:username, :password, :role, :teacher_id)";
-                $query_admin = $dbh->prepare($sql_admin);
-                $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
-                $query_admin->bindParam(':password', $password_md5, PDO::PARAM_STR);
-                $query_admin->bindValue(':role', 'teacher', PDO::PARAM_STR);
-                $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
-                
-                if ($query_admin->execute()) {
-                    $dbh->commit(); 
-                    $msg_teacher_email = $teacheremail;
-                    $msg_teacher_password = $password_plana; 
-                    $msg = "Docente agregado correctamente.";
-                } else {
-                    $dbh->rollBack();
-                    $error = "Error al crear la cuenta.";
-                }
+        if ($lastInsertId) {
+            $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) VALUES(:username, :password, :role, :teacher_id)";
+            $query_admin = $dbh->prepare($sql_admin);
+            $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
+            $query_admin->bindParam(':password', $password_md5, PDO::PARAM_STR);
+            $query_admin->bindValue(':role', 'teacher', PDO::PARAM_STR);
+            $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
+            
+            if ($query_admin->execute()) {
+                $dbh->commit(); 
+                $msg_teacher_email = $teacheremail;
+                $msg_teacher_password = $password_plana; 
+                $msg = "Docente agregado correctamente.";
+            } else {
+                $dbh->rollBack();
+                $error = "Error al crear la cuenta.";
             }
-        } catch (Exception $e) {
-            $dbh->rollBack();
-            $error = "Error: " . $e->getMessage();
         }
+    } catch (Exception $e) {
+        $dbh->rollBack();
+        $error = "Error: " . $e->getMessage();
     }
 }
 ?>

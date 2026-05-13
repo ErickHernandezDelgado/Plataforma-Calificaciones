@@ -1,9 +1,15 @@
 <?php
+/**
+ * generate-report-cards.php
+ * Genera boletas de calificaciones de estudiantes
+ */
+
 require 'vendor/autoload.php';
 use Dompdf\Dompdf;
 use Dompdf\Options;
 
 require_once(__DIR__ . '/includes/config.php');
+include(__DIR__ . '/includes/check-login.php');
 
 if (!isset($_GET['classid'])) {
     die("Falta el ID del grupo.");

@@ -1,16 +1,9 @@
 <?php
 /**
  * get_student.php
- * Versión corregida: Eliminada columna total_periods
+ * Endpoint AJAX para cargar estudiantes y materias por grupo
  */
-
-session_start();
-// Validación de Seguridad: Solo usuarios logueados
-if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
-    header("HTTP/1.1 403 Forbidden");
-    exit('Acceso denegado');
-}
-include(__DIR__ . '/includes/config.php');
+include(__DIR__ . '/includes/check-login.php');
 
 // 1. CARGA DE ESTUDIANTES PARA EL SELECTOR (Dropdown)
 if (!empty($_POST["classid"])) {

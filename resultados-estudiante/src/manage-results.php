@@ -1,14 +1,9 @@
 <?php 
-session_start();
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-include(__DIR__ . '/includes/config.php');
-
-if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
-    header("Location: index.php");
-    exit;
-}
+/**
+ * manage-results.php
+ * Gestión y edición de calificaciones de estudiantes
+ */
+include(__DIR__ . '/includes/check-login.php');
 
 // Procesar actualización de calificaciones si se envía el formulario
 $msg = "";

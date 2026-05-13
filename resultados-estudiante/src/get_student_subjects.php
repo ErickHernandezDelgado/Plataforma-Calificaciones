@@ -1,6 +1,9 @@
 <?php
-session_start();
-include(__DIR__ . '/includes/config.php');
+/**
+ * get_student_subjects.php
+ * Endpoint AJAX para cargar materias y estudiantes de un grupo
+ */
+include('includes/check-login.php');
 
 $classId = $_POST['classid'] ?? null;
 $teacherId = $_SESSION['teacherid'] ?? null;
