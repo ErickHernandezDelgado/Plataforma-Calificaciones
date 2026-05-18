@@ -1,4 +1,5 @@
 <?php
+
 /**
  * index.php - Login System
  * 
@@ -38,15 +39,15 @@ if (isset($_POST['login'])) {
         $_SESSION['id'] = $user->id;
 
         // Redirección según rol
-        switch($user->role) {
+        switch ($user->role) {
             case 'admin':
                 header("Location: dashboard.php");
                 exit;
-                
+
             case 'director':
                 header("Location: dashboard.php");
                 exit;
-                
+
             case 'teacher':
                 if (!is_null($user->teacher_id)) {
                     $_SESSION['teacherid'] = $user->teacher_id;
@@ -56,12 +57,12 @@ if (isset($_POST['login'])) {
                     $msg = "Error: Este usuario maestro no tiene asignado un ID de maestro.";
                 }
                 break;
-                
+
             case 'tutor':
                 $_SESSION['tutorid'] = $user->id;
                 header("Location: portal-tutor.php");
                 exit;
-                
+
             default:
                 $msg = "Rol no válido en el sistema.";
         }
@@ -73,32 +74,41 @@ if (isset($_POST['login'])) {
 
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instituto Panamericano - Acceso al Sistema</title>
-     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             /* Verdes Institucionales */
-            --color-primario: #0F9B3A;   /* Color 1: Verde brillante */
-            --color-secundario: #065D21; /* Color 2: Verde oscuro */
-            
+            --color-primario: #0F9B3A;
+            /* Color 1: Verde brillante */
+            --color-secundario: #065D21;
+            /* Color 2: Verde oscuro */
+
             /* Identidad Visual / Fondos Oscuros */
-            --color-acento: #32344B;     /* Color 3: Azul oscuro/Grisáceo */
-            
+            --color-acento: #32344B;
+            /* Color 3: Azul oscuro/Grisáceo */
+
             /* Variantes de Blanco / Fondos Claros */
-            --blanco-fondo: #F0F7F3;     /* Blanco 1: Fondo general */
-            --blanco-suave: #E4F6EA;     /* Blanco 2: Contenedores/Inputs */
-            
+            --blanco-fondo: #F0F7F3;
+            /* Blanco 1: Fondo general */
+            --blanco-suave: #E4F6EA;
+            /* Blanco 2: Contenedores/Inputs */
+
             /* Opcionales útiles */
             --texto-blanco: #FFFFFF;
             --sombra-suave: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        body, .main-container, .content-section{
+
+        body,
+        .main-container,
+        .content-section {
             font-family: 'Poppins', sans-serif;
             background-color: var(--blanco-fondo);
             margin: 0;
@@ -109,25 +119,29 @@ if (isset($_POST['login'])) {
             justify-content: flex-start;
             width: 100%;
         }
-        .portada{
+
+        .portada {
             display: flex;
             flex-direction: row;
             align-items: stretch;
             justify-content: center;
             width: 100%;
-            min-height: 100vh; 
+            min-height: 100vh;
         }
+
         .container-img {
             width: 50%;
-            justify-content: space-between; /* Para empujar la barra bienvenida al fondo */
-            
+            justify-content: space-between;
+            /* Para empujar la barra bienvenida al fondo */
+
             /* Configuración del Fondo (Imagen al 47% de opacidad) */
-            background: linear-gradient(rgba(255,255,255,0.53), rgba(255,255,255,0.53)), 
-                        url('assets/images/indexbg.png');
+            background: linear-gradient(rgba(255, 255, 255, 0.53), rgba(255, 255, 255, 0.53)),
+                url('assets/images/indexbg.png');
             background-size: cover;
             background-position: center;
             overflow: hidden;
         }
+
         .container-form {
             width: 50%;
             display: flex;
@@ -163,7 +177,7 @@ if (isset($_POST['login'])) {
             padding: 18px 25px;
             background-color: var(--blanco-suave);
             color: var(--color-acento);
-            border:none;
+            border: none;
             border-radius: 8px;
             outline: none;
             box-sizing: border-box;
@@ -182,7 +196,7 @@ if (isset($_POST['login'])) {
             flex-direction: column;
             align-items: center;
         }
-        
+
         .container-button {
             width: 100%;
         }
@@ -199,7 +213,7 @@ if (isset($_POST['login'])) {
             font-size: 16px;
             cursor: pointer;
         }
-        
+
         .a-password {
             color: var(--color-primario);
         }
@@ -212,7 +226,7 @@ if (isset($_POST['login'])) {
             text-align: center;
             font-family: 'Poppins', sans-serif;
         }
-        
+
         /* Estilos del Modal */
         .modal {
             display: none;
@@ -227,8 +241,13 @@ if (isset($_POST['login'])) {
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
 
         .modal-content {
@@ -248,6 +267,7 @@ if (isset($_POST['login'])) {
                 opacity: 0;
                 transform: translateY(-50px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -305,77 +325,83 @@ if (isset($_POST['login'])) {
         .close-modal:hover {
             color: var(--color-primario);
         }
+
         /* ==========================================================================
    MEDIA QUERY: ADAPTACIÓN A DISPOSITIVOS MÓVILES (FIGMA CORES EXACTOS)
    ========================================================================== */
-@media (max-width: 768px) {
-    .portada {
-        flex-direction: column;
-        /* Fondo con la imagen de la escuela detrás de todo */
-        background: linear-gradient(rgba(255,255,255,0.53), rgba(255,255,255,0.53)), 
+        @media (max-width: 768px) {
+            .portada {
+                flex-direction: column;
+                /* Fondo con la imagen de la escuela detrás de todo */
+                background: linear-gradient(rgba(255, 255, 255, 0.53), rgba(255, 255, 255, 0.53)),
                     url('assets/images/indexbg.png');
-        background-size: cover;
-        background-position: center;
-        min-height: 100vh;
-    }
+                background-size: cover;
+                background-position: center;
+                min-height: 100vh;
+            }
 
-    .container-img {
-        display: none; /* Ocultamos la mitad de escritorio */
-    }
+            .container-img {
+                display: none;
+                /* Ocultamos la mitad de escritorio */
+            }
 
-    .container-form {
-        width: 100%;
-        padding: 60px 30px;
-        gap: 32px;
-        box-sizing: border-box;
-        justify-content: center;
-        flex-grow: 1;
-    }
+            .container-form {
+                width: 100%;
+                padding: 60px 30px;
+                gap: 32px;
+                box-sizing: border-box;
+                justify-content: center;
+                flex-grow: 1;
+            }
 
-    .container-title h3 {
-        font-size: 22px;
-        letter-spacing: 0.5px;
-        margin: 0;
-        color: var(--color-acento); /* Manteniendo el título oscuro */
-    }
+            .container-title h3 {
+                font-size: 22px;
+                letter-spacing: 0.5px;
+                margin: 0;
+                color: var(--color-acento);
+                /* Manteniendo el título oscuro */
+            }
 
-    /* INPUTS EN MÓVIL: Color Oscuro de Figma (#32344B) */
-    .input-login {
-        background-color: var(--color-acento); 
-        color: var(--texto-blanco);
-        text-transform: lowercase;
-    }
+            /* INPUTS EN MÓVIL: Color Oscuro de Figma (#32344B) */
+            .input-login {
+                background-color: var(--color-acento);
+                color: var(--texto-blanco);
+                text-transform: lowercase;
+            }
 
-    .input-login::placeholder {
-        color: rgba(255, 255, 255, 0.7); /* Texto del placeholder en blanco suave */
-        font-weight: 700;
-        text-transform: lowercase;
-    }
+            .input-login::placeholder {
+                color: rgba(255, 255, 255, 0.7);
+                /* Texto del placeholder en blanco suave */
+                font-weight: 700;
+                text-transform: lowercase;
+            }
 
-    /* BOTÓN EN MÓVIL: Verde Brillante de Figma (#0F9B3A) */
-    .login-button {
-        background-color: var(--color-primario); 
-        color: var(--texto-blanco);
-        text-transform: uppercase; /* Fuerza el "ENTRAR" en mayúsculas */
-        font-weight: 700;
-        box-shadow: 0 4px 12px rgba(15, 155, 58, 0.2); /* Sutil destello verde abajo */
-    }
+            /* BOTÓN EN MÓVIL: Verde Brillante de Figma (#0F9B3A) */
+            .login-button {
+                background-color: var(--color-primario);
+                color: var(--texto-blanco);
+                text-transform: uppercase;
+                /* Fuerza el "ENTRAR" en mayúsculas */
+                font-weight: 700;
+                box-shadow: 0 4px 12px rgba(15, 155, 58, 0.2);
+                /* Sutil destello verde abajo */
+            }
 
-    /* ENLACE RECUPERAR: Mismo tono oscuro del input */
-    .a-password {
-        color: var(--color-acento);
-        text-decoration: underline;
-        font-size: 14px;
-        font-weight: 600;
-    }
-    
-    .container-bottom p {
-        margin-top: 20px;
-    }
-}
+            /* ENLACE RECUPERAR: Mismo tono oscuro del input */
+            .a-password {
+                color: var(--color-acento);
+                text-decoration: underline;
+                font-size: 14px;
+                font-weight: 600;
+            }
 
+            .container-bottom p {
+                margin-top: 20px;
+            }
+        }
     </style>
 </head>
+
 <body>
 
     <!-- Mensajes -->
@@ -393,28 +419,26 @@ if (isset($_POST['login'])) {
             <div class="container-title">
                 <h3>INICIO DE SESION</h3>
             </div>
-            <form method="POST" action="" class = "form-group">
+            <form method="POST" action="" class="form-group">
                 <div class="container-input">
-                    <input 
-                        type="text" 
-                        id="username" 
-                        name="username" 
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
                         placeholder="Correo electronico"
-                        required 
+                        required
                         autofocus
-                        class="input-login"
-                    />
+                        class="input-login" />
                 </div>
 
                 <div class="container-input">
-                    <input 
-                        type="password" 
-                        id="password" 
-                        name="password" 
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
                         placeholder="contraseña"
                         required
-                        class="input-login"
-                    />
+                        class="input-login" />
                 </div>
 
                 <div class="container-bottom">
@@ -468,4 +492,5 @@ if (isset($_POST['login'])) {
     </script>
 
 </body>
+
 </html>
