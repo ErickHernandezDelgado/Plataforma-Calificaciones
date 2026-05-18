@@ -2,27 +2,18 @@
 /**
  * add-students.php
  * Sistema de Gestión de Calificaciones IPT
- * Desarrollado por: Residente
+ * Agregar estudiantes de forma individual o masiva
  */
 
-// 1. INICIO DE SESIÓN SEGURO (Debe ser lo primero)
-session_start();
+// Validación centralizada de sesión
+include(__DIR__ . '/includes/check-login.php');
 
-// 2. CARGA DE DEPENDENCIAS Y CONFIGURACIÓN
+// Cargar dependencias
 require 'vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-
-// Importante: Usar __DIR__ para que la ruta sea absoluta y no falle la sesión
-include(__DIR__ . '/includes/config.php');
-
-// 3. VALIDACIÓN DE AUTENTICACIÓN
-if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
-    header("Location: index.php");
-    exit;
-}
 
 // Variables de control
 $msg = "";
@@ -85,6 +76,7 @@ if (isset($_POST['submit'])) {
 
     if ($student_id) {
         if ($_POST['tutor_option'] == 'create') {
+            // OPCIÓN 1: CREAR TUTOR NUEVO
             $t_email = $_POST['tutor_email'];
             $t_info = createTutor($dbh, $t_email, $_POST['tutor_name']);
             
@@ -98,6 +90,39 @@ if (isset($_POST['submit'])) {
                     Usuario: <b>{$t_info['email']}</b> | Contraseña: <b style='color:red;'>{$t_info['pass']}</b>
                 </div>";
                 $msg = "Estudiante y Tutor creados con éxito.";
+            }
+        } 
+        elseif ($_POST['tutor_option'] == 'existing') {
+            // OPCIÓN 2: VINCULAR TUTOR EXISTENTE
+            $existing_tutor_id = intval($_POST['existing_tutor_id'] ?? 0);
+            $relationship = $_POST['relationship_type'] ?? 'padre';
+            
+            if ($existing_tutor_id > 0) {
+                // Obtener información del tutor para mostrar
+                $tutor_sql = "SELECT UserName FROM admin WHERE id = :tid AND role = 'tutor'";
+                $tutor_query = $dbh->prepare($tutor_sql);
+                $tutor_query->execute([':tid' => $existing_tutor_id]);
+                $tutor_info = $tutor_query->fetch(PDO::FETCH_OBJ);
+                
+                if ($tutor_info) {
+                    // Vincular alumno con tutor existente
+                    if (linkTutor($dbh, $student_id, $existing_tutor_id, $relationship)) {
+                        $msg = "✅ Estudiante vinculado con tutor existente correctamente.";
+                        $tutor_credentials = "
+                        <div class='alert alert-success' style='border: 2px solid #155724;'>
+                            <strong>✓ TUTOR EXISTENTE VINCULADO:</strong><br>
+                            Email del Tutor: <b>{$tutor_info->UserName}</b><br>
+                            Relación: <b>" . ucfirst($relationship) . "</b><br>
+                            <em>El tutor puede acceder a las calificaciones de este estudiante</em>
+                        </div>";
+                    } else {
+                        $error = "Error al vincular el tutor. Intenta nuevamente.";
+                    }
+                } else {
+                    $error = "El tutor seleccionado no existe en el sistema.";
+                }
+            } else {
+                $error = "Debe seleccionar un tutor válido.";
             }
         }
     }

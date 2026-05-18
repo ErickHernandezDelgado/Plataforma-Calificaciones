@@ -87,6 +87,8 @@ if ($selected_student_id) {
 
 ?>
 
+
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -94,509 +96,611 @@ if ($selected_student_id) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal de Tutores - Instituto Panamericano</title>
     
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
-            --primary-color: #238D15;
-            --secondary-color: #FFB81C;
-            --light-bg: #F5F7FA;
-            --border-color: #E0E0E0;
+            /* Verdes Institucionales */
+            --color-primario: #0F9B3A;   /* Color 1: Verde brillante */
+            --color-secundario: #065D21; /* Color 2: Verde oscuro */
+            
+            /* Identidad Visual / Fondos Oscuros */
+            --color-acento: #32344B;     /* Color 3: Azul oscuro/Grisáceo */
+            
+            /* Variantes de Blanco / Fondos Claros */
+            --blanco-fondo: #F0F7F3;     /* Blanco 1: Fondo general */
+            --blanco-suave: #E4F6EA;     /* Blanco 2: Contenedores/Inputs */
+            
+            /* Opcionales útiles */
+            --texto-blanco: #FFFFFF;
+            --sombra-suave: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-
-        * {
+        body, .main-container, .content-section{
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--blanco-fondo);
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px 0;
-        }
-
-        .navbar {
-            background: linear-gradient(90deg, var(--primary-color) 0%, #1a6b0f 100%);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            border-bottom: 4px solid var(--secondary-color);
-        }
-
-        .navbar-brand {
-            font-weight: 700;
-            font-size: 1.3em;
-            color: white !important;
-        }
-
-        .nav-link {
-            color: rgba(255,255,255,0.9) !important;
-            font-weight: 500;
-            transition: all 0.3s ease;
-        }
-
-        .nav-link:hover {
-            color: var(--secondary-color) !important;
-        }
-
-        .container-main {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        .hero-section {
+            width: 100%;
+            height: 621px; 
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; /* Para empujar la barra bienvenida al fondo */
+            
+            /* Configuración del Fondo (Imagen al 47% de opacidad) */
+            background: linear-gradient(rgba(255,255,255,0.53), rgba(255,255,255,0.53)), 
+                        url('assets/images/pexels-pixabay-2166.jpg');
+            background-size: cover;
+            background-position: center;
             overflow: hidden;
-            margin-bottom: 40px;
         }
 
-        .header-section {
-            background: linear-gradient(135deg, var(--primary-color) 0%, #1a6b0f 100%);
+        /* Frame 1: Logo (Posicionamiento arriba izquierda) */
+        .logo-container {
+            padding: 40px 0 0 60px; /* Ajusta según tus márgenes en Figma */
+        }
+
+        .school-logo {
+            width: 250px; /* Ajusta el tamaño de tu logo */
+            height: auto;
+        }
+
+        /* Frame 2: Tarjeta de Usuario (El rectángulo verde arriba derecha) */
+/* Contenedor del carrusel */
+.user-carousel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%; /* Para que las flechas se alejen del centro */
+    margin-bottom: 10px;
+}
+
+/* Estilo de las flechas */
+.nav-arrow {
+    color: rgba(255, 255, 255, 0.6); /* Un blanco un poco transparente */
+    font-size: 24px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    padding: 0 5px;
+}
+
+        /* Efecto al pasar el mouse por las flechas */
+        .nav-arrow:hover {
+            color: #FFFFFF;
+            transform: scale(1.2); /* Se hacen un poquito más grandes */
+        }
+
+        /* Ajuste al icono para que no se mueva */
+        .user-icon-container {
+            margin-bottom: 0; /* Quitamos el margen inferior porque ya lo tiene el carrusel */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .user-icon {
+            font-size: 55px; /* Un pelín más grande para que destaque */
             color: white;
-            padding: 30px;
+        }
+
+        /* Ajuste extra a la card para que quepan bien las flechas */
+        .user-card {
+            position: absolute;
+            top: 0;
+            right: 80px;
+            background-color: var(--color-primario);
+            width: 200px; /* La ensanchamos un poquito (de 180 a 200) para las flechas */
+            padding: 20px 15px;
+            border-radius: 0 0 25px 25px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+
+        .user-name {
+            font-size: 14px;
+            font-weight: bold;
             text-align: center;
+            text-transform: lowercase;
         }
 
-        .header-section h1 {
-            font-size: 2em;
-            font-weight: 700;
-            margin-bottom: 10px;
+        .logout-link {
+            color: var(--blanco-suave);
+            font-size: 12px;
+            text-decoration: underline;
+            margin-top: 5px;
         }
 
-        .header-section p {
-            font-size: 1.1em;
-            opacity: 0.95;
+        /* Frame 3: Barra Verde de Bienvenida (Abajo) */
+        .welcome-bar {
+            background-color: var(--color-primario);
+            width: 100%;
+            padding: 30px 60px;
+            color: white;
         }
 
-        .student-selector {
-            background: var(--light-bg);
-            border-bottom: 1px solid var(--border-color);
-            padding: 20px;
+        .welcome-bar h1 {
+            margin: 0;
+            font-size: 40px;
+            font-weight: semi-bold;
+            letter-spacing: 1px;
         }
 
-        .student-card {
-            background: white;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 5px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
+        .welcome-bar p {
+            margin: 5px 0 0 0;
+            font-size: 18px;
+            opacity: 0.9;
         }
 
-        .student-card:hover,
-        .student-card.active {
-            border-color: var(--primary-color);
-            box-shadow: 0 4px 12px rgba(35, 141, 21, 0.2);
-            transform: translateY(-2px);
+
+        /* Contenedor Principal de Contenido */
+        .student-info-section {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 50px 71px 50px 71px;
         }
 
-        .student-card.active {
-            background: #e8f5e9;
-            font-weight: 600;
-        }
-
-        .student-card h5 {
-            color: var(--primary-color);
-            margin-bottom: 5px;
-        }
-
-        .student-card .small {
-            color: #666;
-        }
-
-        .content-section {
-            padding: 30px;
-        }
-
+        /* Tarjeta de Datos del Alumno */
         .student-info-box {
-            background: var(--light-bg);
-            border-left: 4px solid var(--primary-color);
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
+            background-color: var(--blanco-suave); /* Tu Blanco 2: #E4F6EA */
+            display: flex;
+            flex-direction: column;
+            align-self:center;
+            border-radius: 20px; /* Radio de esquina según Figma */
+            padding: 30px 86px 30px 86px; /* Margen interior exacto de tu captura */
+            box-shadow: var(--sombra-suave);
         }
 
-        .student-info-box h4 {
-            color: var(--primary-color);
-            margin-bottom: 15px;
+        .student-info-box h3 {
+            color: var(--color-acento); /* Tu Color 3: #32344B */
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+
+        /* Grid de Información */
+        .info-display-grid {
+            display: grid;
+            grid-template-columns: 200px 1fr; /* Columna fija para etiquetas */
+            row-gap: 20px;
         }
 
         .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .info-row:last-child {
-            border-bottom: none;
+            display: contents; /* Permite que los hijos se alineen al grid principal */
         }
 
         .info-label {
-            font-weight: 600;
-            color: #333;
+            color: var(--color-acento);
+            font-weight: 700;
+            font-size: 1.1rem;
         }
 
         .info-value {
-            color: #666;
+            color: var(--color-acento);
+            font-weight: 400;
+            font-size: 1.1rem;
+            text-align: left;
+            padding-left: 100px; /* Espacio visual entre etiqueta y valor */
         }
+
+        
+
+
+
+                /* Contenedor de la tabla */
+        /* --- Ajustes para la sección de Calificaciones --- */
 
         .grades-section {
-            margin-top: 30px;
-        }
-
-        .grades-section h4 {
-            color: var(--primary-color);
-            margin-bottom: 20px;
-            font-weight: 700;
-        }
-
-        .table {
-            border-collapse: collapse;
             width: 100%;
+            max-width: 1000px; /* Ajusta según el ancho de tu diseño */
+            padding: 0 20px;
         }
 
-        .table thead {
-            background: var(--light-bg);
-            border-top: 2px solid var(--primary-color);
+        .grades-section h3 {
+            color: var(--color-acento);
+            font-size: 1.4rem;
+            font-weight: 800;
+            margin-bottom: 25px;
+            position: relative;
+            padding-left: 15px;
         }
 
-        .table th {
-            color: var(--primary-color);
-            font-weight: 600;
-            padding: 15px;
-            text-align: left;
+        /* El indicador verde al lado del título CALIFICACIÓN */
+        .grades-section h3::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 6px;
+            height: 100%;
+            background-color: var(--color-primario);
+            border-radius: 10px;
         }
 
-        .table td {
-            padding: 15px;
-            border-bottom: 1px solid var(--border-color);
+        .grades-table-wrapper {
+            width: 100%;
+            overflow-x: auto; /* Por si hay muchas columnas en móvil */
         }
 
-        .table tbody tr:hover {
-            background: #f9f9f9;
+        .grades-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 15px; /* Espacio vertical entre cada 'píldora' */
         }
 
-        .grade {
-            font-weight: 600;
-            padding: 8px 12px;
-            border-radius: 4px;
-            text-align: center;
-            min-width: 50px;
+        /* Cabeceras de la tabla */
+        .grades-table thead th {
+            color: var(--color-acento);
+            opacity: 0.7;
+            font-weight: 700;
+            font-size: 0.9rem;
+            padding: 10px;
+            text-transform: uppercase;
         }
 
-        .grade.excellent {
-            background: #d4edda;
-            color: #155724;
+        /* Filas de materias */
+        .grade-item-row td {
+            padding: 20px;
+            color: white;
+            font-size: 1.1rem;
         }
 
-        .grade.good {
-            background: #d1ecf1;
-            color: #0c5460;
+        /* Redondear solo las esquinas exteriores de la fila */
+        .grade-item-row td:first-child { 
+            border-radius: 20px 0 0 20px; 
+            padding-left: 40px; /* Más espacio para el nombre de la materia */
+            width: 40%; 
         }
 
-        .grade.fair {
-            background: #fff3cd;
-            color: #856404;
+        .grade-item-row td:last-child { 
+            border-radius: 0 20px 20px 0; 
         }
 
-        .grade.low {
-            background: #f8d7da;
-            color: #721c24;
+        /* Colores alternados exactos */
+        .grade-item-row:nth-child(odd) td {
+            background-color: var(--color-primario); /* Verde */
         }
 
-        .no-grades {
-            text-align: center;
-            padding: 40px 20px;
-            color: #999;
+        .grade-item-row:nth-child(even) td {
+            background-color: var(--color-acento); /* Gris/Azul Oscuro */
         }
 
+        /* Estilo para el botón de PDF (centrado) */
         .action-buttons {
+            padding-right: 50px;
             display: flex;
-            gap: 15px;
-            margin-top: 30px;
-            flex-wrap: wrap;
+            justify-content: space-between;
+            margin-top: 40px;
         }
 
-        .btn-custom {
-            padding: 12px 24px;
-            font-weight: 600;
-            border-radius: 8px;
-            transition: all 0.3s ease;
+        .btn-primary {
+            background-color: var(--color-acento);
+            color: white;
+            padding: 15px 40px;
+            border-radius: 8px; /* Botón ovalado */
             text-decoration: none;
-            display: inline-flex;
+            font-weight: 700;
+            text-transform: uppercase;
+            box-shadow: 0 10px 20px rgba(15, 155, 58, 0.2);
+            transition: transform 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+        }
+
+        .promedio-container {
+            display: flex;
             align-items: center;
-            gap: 10px;
         }
 
-        .btn-download {
-            background: var(--primary-color);
-            color: white;
-            border: none;
+        .unidades {
+            padding: 10px;
+
         }
 
-        .btn-download:hover {
-            background: #1a6b0f;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(35, 141, 21, 0.3);
-        }
-
-        .btn-logout {
-            background: #dc3545;
-            color: white;
-            border: none;
-        }
-
-        .btn-logout:hover {
-            background: #a71d2a;
+        .contenedor-unidades{
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
         }
 
         .footer {
-            text-align: center;
-            padding: 20px;
+            width: 100%;
+            padding: 20px 0;
+            background-color: var(--color-acento);
             color: white;
-            background: rgba(0,0,0,0.1);
-            margin-top: 40px;
-            font-size: 0.9em;
-        }
-
-        .no-students {
             text-align: center;
-            padding: 60px 20px;
-            color: #666;
+            margin-top: 50px;
+        }
+        .linea-verde {
+            width: max;
+            height: 4px;
+            background-color: var(--color-primario);
+            margin: 10px auto 0 auto;
         }
 
-        .no-students i {
-            font-size: 3em;
-            color: #ddd;
-            margin-bottom: 20px;
-        }
+        /* ==========================================
+   PARTE 1: CABECERA Y BIENVENIDO (MOBILE)
+   ========================================== */
+@media (max-width: 768px) {
+    /* Contenedor padre relativo para controlar los absolutos */
+    .hero-section {
+        position: relative;
+        height: 380px; /* Ajusta según el alto de tu imagen */
+        display: block; /* Desactivamos flexbox para controlar por coordenadas */
+    }
 
-        @media (max-width: 768px) {
-            .header-section h1 {
-                font-size: 1.5em;
-            }
+    /* Logo absoluto arriba a la izquierda */
+    .logo-container {
+        position: absolute;
+        top: 25px;
+        left: 20px;
+        padding: 0;
+        margin: 0;
+        z-index: 10;
+    }
 
-            .student-card {
-                flex: 1 1 100%;
-            }
+    .school-logo {
+        width: 130px; /* Más compacto en móvil para dar espacio */
+    }
 
-            .action-buttons {
-                flex-direction: column;
-            }
+    /* Tarjeta de Usuario: Flotando a la derecha y un poco más abajo */
+    .user-card {
+        position: absolute;
+        top: 25px; /* Alineado verticalmente con el logo o muévelo más abajo si prefieres */
+        right: 20px;
+        margin: 0;
+        width: auto; /* Se adapta al contenido como la píldora de Figma */
+        min-width: 160px;
+        padding: 12px 15px;
+        background-color: var(--color-primario); /* Fondo verde del diseño */
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
 
-            .btn-custom {
-                width: 100%;
-                justify-content: center;
-            }
+    /* Forzamos que todo lo de adentro sea blanco por el fondo verde */
+    .user-card .user-name,
+    .user-card .logout-link,
+    .user-card .user-icon,
+    .user-card .nav-arrow {
+        color: #FFFFFF !important;
+    }
 
-            .table {
-                font-size: 0.9em;
-            }
+    .user-card .user-name {
+        font-size: 12px;
+        font-weight: 600;
+        text-align: center;
+    }
 
-            .table th, .table td {
-                padding: 10px;
-            }
-        }
+    .user-card .logout-link {
+        font-size: 10px;
+        text-transform: lowercase;
+        opacity: 0.9;
+    }
+
+    /* Barra de Bienvenido fija abajo de la sección del cohete */
+    .welcome-bar {
+        position: relative;
+        padding: 25px 20px;
+        text-align: center;
+        background-color: var(--color-primario);
+        margin-top: -5px; /* Evita cualquier línea blanca de separación */
+    }
+
+    .welcome-bar h1 {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 5px;
+        color: #FFFFFF;
+    }
+
+    .welcome-bar p {
+        font-size: 13px;
+        line-height: 1.4;
+        color: #FFFFFF;
+    }
+}
+        
+
     </style>
 </head>
 <body>
 
-<!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-light">
-    <div class="container">
-        <a class="navbar-brand" href="#">
-            <i class="fas fa-graduation-cap"></i> Portal de Tutores
-        </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
-            <span class="d-flex align-items-center me-3" style="color: white;">
-                <i class="fas fa-user-circle me-2"></i>
-                <?php echo htmlentities($_SESSION['alogin']); ?>
-            </span>
-            <a href="logout.php" class="btn btn-logout btn-custom">
-                <i class="fas fa-sign-out-alt"></i> Salir
+<!-- CABECERA -->
+<section class="hero-section">
+    <div class="logo-container">
+        <img src="assets/images/logo_no_bg.png" alt="Logo IPT" class="school-logo">
+    </div>
+
+    <div class="user-card">
+        <div class="user-carousel">
+            <a href="#" class="nav-arrow" id="prevStudent">
+                <i class="fa-solid fa-angle-left"></i>
+            </a>
+
+            <div class="user-icon-container">
+                <i class="fa-solid fa-circle-user user-icon"></i>
+            </div>
+
+            <a href="#" class="nav-arrow" id="nextStudent">
+                <i class="fa-solid fa-angle-right"></i>
             </a>
         </div>
+
+        <span class="user-name"><?php echo htmlentities($selected_student->StudentName); ?></span>
+        <a href="logout.php" class="logout-link">cerrar sesión</a>
     </div>
-</nav>
 
-<div class="container mt-4">
-    <div class="container-main">
-        <!-- Header -->
-        <div class="header-section">
-            <h1>Bienvenido al Portal de Tutores</h1>
-            <p>Instituto Panamericano de Tampico</p>
-        </div>
+    <div class="welcome-bar">
+        <h1>BIENVENIDO</h1>
+        <p>aquí podrás revisar las calificaciones de cada unidad</p>
+    </div>
+</section>
 
-        <!-- Selector de Estudiante -->
-        <?php if (count($students) > 0): ?>
-            <div class="student-selector">
-                <h5 style="margin-bottom: 15px; color: #333;">Selecciona a tu hijo/a:</h5>
-                <div style="display: flex; flex-wrap: wrap;">
-                    <?php foreach ($students as $student): ?>
-                        <a href="?student_id=<?php echo $student->StudentId; ?>" style="flex: 0 1 calc(50% - 10px);">
-                            <div class="student-card <?php echo ($student->StudentId == $selected_student_id) ? 'active' : ''; ?>">
-                                <h5><i class="fas fa-user-tie"></i> <?php echo htmlentities($student->StudentName); ?></h5>
-                                <small><?php echo htmlentities($student->ClassName); ?> - Sección <?php echo htmlentities($student->Section); ?></small>
-                            </div>
-                        </a>
-                    <?php endforeach; ?>
-                </div>
-            </div>
 
-            <!-- Contenido Principal -->
+<!-- MAIN CONTENT -->
+            <!-- CONTENIDO PRINCIPAL -->
             <?php if ($selected_student): ?>
                 <div class="content-section">
-                    <!-- Información del Estudiante -->
-                    <div class="student-info-box">
-                        <h4><i class="fas fa-id-card"></i> Información del Estudiante</h4>
-                        <div class="info-row">
-                            <span class="info-label">Nombre:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->StudentName); ?></span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Matrícula (Roll ID):</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->RollId); ?></span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Grado:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->ClassName); ?> - Sección <?php echo htmlentities($selected_student->Section); ?></span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Correo Electrónico:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->StudentEmail); ?></span>
+                    
+                    <!-- INFO BOX DEL ESTUDIANTE -->
+                    <div class="student-info-section">
+                        <div class="student-info-box">
+                            <h3>DATOS DEL ALUMNO</h3>
+                                
+                                <div class="info-display-grid">
+                                    <div class="info-row">
+                                        <span class="info-label">Nombre:</span>
+                                        <span class="info-value"><?php echo htmlentities($selected_student->StudentName); ?></span>
+                                    </div>
+                                    
+                                    <div class="info-row">
+                                        <span class="info-label">Grado:</span>
+                                        <span class="info-value"><?php echo htmlentities($selected_student->ClassName); ?></span>
+                                    </div>
+                                    
+                                    <div class="info-row">
+                                        <span class="info-label">Grupo:</span>
+                                        <span class="info-value"><?php echo htmlentities($selected_student->Section); ?></span>
+                                    </div>
+                                    
+                                    <div class="info-row">
+                                        <span class="info-label">Correo:</span>
+                                        <span class="info-value"><?php echo htmlentities($selected_student->StudentEmail); ?></span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Calificaciones -->
+                    <!-- SECCIÓN DE CALIFICACIONES -->
                     <div class="grades-section">
-                        <h4><i class="fas fa-chart-bar"></i> Calificaciones Actuales</h4>
+                        <h3>CALIFICACIÓN</h3>
                         
                         <?php if (count($student_grades) > 0): ?>
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>Materia</th>
-                                        <th>I Período</th>
-                                        <th>II Período</th>
-                                        <th>III Período</th>
-                                        <th>Promedio</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php 
-                                    $total_avg = 0;
-                                    $subject_count = 0;
-                                    
-                                    foreach ($student_grades as $grade): 
-                                        $term1 = $grade->term1 ?? 0;
-                                        $term2 = $grade->term2 ?? 0;
-                                        $term3 = $grade->term3 ?? 0;
-                                        $avg = ($term1 + $term2 + $term3) / 3;
-                                        $total_avg += $avg;
-                                        $subject_count++;
-                                        
-                                        // Determinar clase según calificación
-                                        $class = '';
-                                        if ($avg >= 90) $class = 'excellent';
-                                        elseif ($avg >= 80) $class = 'good';
-                                        elseif ($avg >= 70) $class = 'fair';
-                                        else $class = 'low';
-                                    ?>
+                            <div class="grades-table-wrapper">
+                                <table class="grades-table">
+                                    <thead class="unidades">
                                         <tr>
-                                            <td><strong><?php echo htmlentities($grade->SubjectName); ?></strong></td>
-                                            <td>
-                                                <?php if ($term1): ?>
-                                                    <span class="grade <?php echo ($term1 >= 80) ? 'good' : 'fair'; ?>">
-                                                        <?php echo number_format($term1, 1); ?>
-                                                    </span>
-                                                <?php else: ?>
-                                                    <span style="color: #ccc;">--</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <?php if ($term2): ?>
-                                                    <span class="grade <?php echo ($term2 >= 80) ? 'good' : 'fair'; ?>">
-                                                        <?php echo number_format($term2, 1); ?>
-                                                    </span>
-                                                <?php else: ?>
-                                                    <span style="color: #ccc;">--</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <?php if ($term3): ?>
-                                                    <span class="grade <?php echo ($term3 >= 80) ? 'good' : 'fair'; ?>">
-                                                        <?php echo number_format($term3, 1); ?>
-                                                    </span>
-                                                <?php else: ?>
-                                                    <span style="color: #ccc;">--</span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td>
-                                                <span class="grade <?php echo $class; ?>">
-                                                    <?php echo number_format($avg, 1); ?>
-                                                </span>
-                                            </td>
+                                            <th>Asignatura</th>
+                                            <th><div class="contenedor-unidades">1</div></th>
+                                            <th><div class="contenedor-unidades">2</div></th>
+                                            <th><div class="contenedor-unidades">3</div></th>
+                                            <th><div class="contenedor-unidades">4</div></th>
+                                            <th><div class="contenedor-unidades">5</div></th>
+                                            <th>PROM</th>
                                         </tr>
-                                    <?php endforeach; ?>
-                                    
-                                    <!-- Promedio General -->
-                                    <tr style="background: var(--light-bg); font-weight: 700;">
-                                        <td colspan="4" style="text-align: right;">Promedio General:</td>
-                                        <td>
-                                            <span class="grade <?php 
-                                                $general_avg = $total_avg / $subject_count;
-                                                if ($general_avg >= 90) echo 'excellent';
-                                                elseif ($general_avg >= 80) echo 'good';
-                                                elseif ($general_avg >= 70) echo 'fair';
-                                                else echo 'low';
-                                            ?>">
-                                                <?php echo number_format($general_avg, 1); ?>
-                                            </span>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        <?php else: ?>
-                            <div class="no-grades">
-                                <i class="fas fa-file-slash"></i>
-                                <p>No hay calificaciones registradas aún.</p>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($student_grades as $grade): 
+                                            // Lógica de promedio
+                                            $terms = array_filter([$grade->term1, $grade->term2, $grade->term3]);
+                                            $avg = count($terms) > 0 ? array_sum($terms) / count($terms) : 0;
+                                        ?>
+                                            <tr class="grade-item-row">
+                                                <td><?php echo htmlentities($grade->SubjectName); ?></td>
+                                                <td><div class="contenedor-unidades"><?php echo $grade->term1 ?: '-'; ?></div></td>
+                                                <td><div class="contenedor-unidades"><?php echo $grade->term2 ?: '-'; ?></div></td>
+                                                <td><div class="contenedor-unidades"><?php echo $grade->term3 ?: '-'; ?></div></td>
+                                                <td><div class="contenedor-unidades"><?php echo $grade->term4 ?: '-'; ?></div></td>
+                                                <td><div class="contenedor-unidades"><?php echo $grade->term5 ?: '-'; ?></div></td>
+                                                <td style="font-weight: 800;"><div class="contenedor-unidades"><?php echo number_format($avg, 1); ?></div></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                             </div>
+
+                            <div class="action-buttons">
+                                <a href="generate-report-cards.php?student_id=<?php echo $selected_student_id; ?>" 
+                                target="_blank" 
+                                class="btn-primary">
+                                <i class="fas fa-file-pdf"></i> imprimir boleta
+                                </a>
+                                <div style="font-weight: 800" class="promedio-container"> 
+                                    <p><?php echo number_format(array_sum(array_column($student_grades, 'avg')) / count($student_grades), 1); ?></p>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <p style="text-align: center; color: var(--color-acento);">No hay calificaciones registradas aún.</p>
                         <?php endif; ?>
                     </div>
-
-                    <!-- Botones de Acción -->
-                    <div class="action-buttons">
-                        <a href="generate-report-cards.php?classid=<?php echo $selected_student->ClassId; ?>" 
-                           target="_blank" 
-                           class="btn-custom btn-download">
-                            <i class="fas fa-file-pdf"></i> Descargar Boleta PDF
-                        </a>
-                    </div>
+                </div>
+            <?php else: ?>
+                <div class="no-students">
+                    <i class="fas fa-inbox"></i>
+                    <h3>No hay estudiantes asignados</h3>
+                    <p>Contacta al administrador del sistema para obtener acceso a los registros de tus hijos.</p>
                 </div>
             <?php endif; ?>
-        <?php else: ?>
-            <div class="no-students">
-                <i class="fas fa-inbox"></i>
-                <h4>No hay estudiantes asignados</h4>
-                <p>Contacta al administrador del sistema para obtener acceso a los registros de tus hijos.</p>
-            </div>
-        <?php endif; ?>
-    </div>
+
+<!-- WRAPPER DE CONTENIDO (si es necesario cerrar algo) -->
 </div>
 
-<!-- Footer -->
+<!-- FOOTER -->
 <div class="footer">
     <p>&copy; 2026 Instituto Panamericano de Tampico. Todos los derechos reservados.</p>
-    <small>Portal de Tutores v1.0</small>
+    <p><small>Portal de Tutores v1.0</small></p>
+    <div class="linea-verde"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Script para la navegación del carrusel de estudiantes -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const students = <?php echo json_encode(array_map(function($s) { 
+        return ['id' => $s->StudentId, 'name' => $s->StudentName]; 
+    }, $students)); ?>;
+    
+    const currentStudentId = <?php echo json_encode($selected_student_id); ?>;
+    let currentIndex = students.findIndex(s => s.id == currentStudentId);
+    
+    const prevBtn = document.getElementById('prevStudent');
+    const nextBtn = document.getElementById('nextStudent');
+    
+    if (prevBtn) {
+        prevBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (students.length > 0) {
+                currentIndex = (currentIndex - 1 + students.length) % students.length;
+                window.location.href = '?student_id=' + students[currentIndex].id;
+            }
+        });
+    }
+    
+    if (nextBtn) {
+        nextBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (students.length > 0) {
+                currentIndex = (currentIndex + 1) % students.length;
+                window.location.href = '?student_id=' + students[currentIndex].id;
+            }
+        });
+    }
+});
+</script>
 
 </body>
 </html>
