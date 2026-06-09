@@ -96,15 +96,33 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <tr>
                                                     <th>#</th>
                                                     <th>Título de Comunicado</th>
-                                                    <th>Información de Comunicado</th>
+                                                    <th>Dirigido a</th>
+                                                    <th>Enviado a</th>
+                                                    <th>Visto por</th>
                                                     <th>Fecha Creación</th>
                                                     <th>Acción</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <?php
-                                                // Consulta para obtener todos los comunicados
-                                                $sql = "SELECT * from tblnotice";
+                                                // Consulta para obtener todos los comunicados con información de audiencia
+                                                $sql = "SELECT 
+                                                            tn.id,
+                                                            tn.noticeTitle,
+                                                            tn.noticeDetails,
+                                                            tn.postingDate,
+                                                            tn.audience_type,
+                                                            COALESCE(tc.ClassName, 'N/A') as ClassName,
+                                                            COALESCE(tc.Section, 'N/A') as Section,
+                                                            COUNT(DISTINCT ns.student_id) as total_students,
+                                                            SUM(CASE WHEN ns.is_viewed = 1 THEN 1 ELSE 0 END) as students_viewed
+                                                        FROM tblnotice tn
+                                                        LEFT JOIN tblclasses tc ON tn.class_id = tc.id
+                                                        LEFT JOIN notice_student ns ON tn.id = ns.notice_id
+                                                        WHERE tn.is_active = 1
+                                                        GROUP BY tn.id, tn.noticeTitle, tn.noticeDetails, tn.postingDate, tn.audience_type, tc.ClassName, tc.Section
+                                                        ORDER BY tn.postingDate DESC";
+                                                
                                                 $query = $dbh->prepare($sql);
                                                 $query->execute();
 
@@ -116,7 +134,17 @@ if (strlen($_SESSION['alogin']) == "") {
 
                                                 // Si existen registros, los muestra en la tabla
                                                 if ($query->rowCount() > 0) {
-                                                    foreach ($results as $result) { ?>
+                                                    foreach ($results as $result) { 
+                                                        // Determinar descripción de audiencia
+                                                        $audience_desc = '';
+                                                        if ($result->audience_type == 'all') {
+                                                            $audience_desc = 'Todos';
+                                                        } elseif ($result->audience_type == 'class') {
+                                                            $audience_desc = $result->ClassName . ' - ' . $result->Section;
+                                                        } else {
+                                                            $audience_desc = 'Seleccionados';
+                                                        }
+                                                        ?>
                                                         <tr>
                                                             <!-- Número consecutivo -->
                                                             <td><?php echo htmlentities($cnt); ?></td>
@@ -124,8 +152,24 @@ if (strlen($_SESSION['alogin']) == "") {
                                                             <!-- Título del comunicado -->
                                                             <td><?php echo htmlentities($result->noticeTitle); ?></td>
 
-                                                            <!-- Detalles del comunicado -->
-                                                            <td><?php echo htmlentities($result->noticeDetails); ?></td>
+                                                            <!-- Tipo de audiencia -->
+                                                            <td>
+                                                                <span class="label label-info"><?php echo htmlentities($audience_desc); ?></span>
+                                                            </td>
+
+                                                            <!-- Total de estudiantes -->
+                                                            <td><?php echo htmlentities($result->total_students); ?></td>
+
+                                                            <!-- Estudiantes que han visto el anuncio -->
+                                                            <td>
+                                                                <?php 
+                                                                echo htmlentities($result->students_viewed) . ' / ' . htmlentities($result->total_students);
+                                                                if ($result->total_students > 0) {
+                                                                    $percentage = round(($result->students_viewed / $result->total_students) * 100);
+                                                                    echo ' (' . $percentage . '%)';
+                                                                }
+                                                                ?>
+                                                            </td>
 
                                                             <!-- Fecha de publicación -->
                                                             <td><?php echo htmlentities($result->postingDate); ?></td>
@@ -133,7 +177,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                                             <!-- Botón para eliminar el comunicado -->
                                                             <td>
                                                                 <a href="manage-notices.php?id=<?php echo htmlentities($result->id); ?>" onclick="return confirm('Deseas eliminar este comunicado?');" class="btn btn-danger">
-                                                                    <i class="fa fa-trash" title="Delete this Record"></i>
+                                                                    <i class="fa fa-trash" title="Eliminar este registro"></i>
                                                                 </a>
                                                             </td>
                                                         </tr>

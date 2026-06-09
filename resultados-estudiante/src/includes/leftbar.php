@@ -69,6 +69,15 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     </ul>
                 </li>
 
+                <!-- Menú para Inglés (NUEVO - FASE INGLÉS) -->
+                <li class="has-children">
+                    <a href="#"><i class="fa fa-globe"></i> <span>English / Inglés</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <ul class="child-nav">
+                        <li><a href="add-result-en.php"><i class="fa fa-plus"></i> <span>➕ Add English Grades</span></a></li>
+                        <li><a href="manage-results-en.php"><i class="fa fa-edit"></i> <span>✎ Manage English Grades</span></a></li>
+                    </ul>
+                </li>
+
                 <!-- Menú para la gestión de comunicados -->
                 <li class="has-children">
                     <a href="#"><i class="fa fa-bell"></i> <span>Comunicados</span> <i class="fa fa-angle-right arrow"></i></a>

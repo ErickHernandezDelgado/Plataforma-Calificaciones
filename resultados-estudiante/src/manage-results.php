@@ -464,6 +464,7 @@ $teacherRole = $_SESSION['rol'] ?? null;
     <script src="js/jquery/jquery-2.2.4.min.js"></script>
     <script src="js/bootstrap/bootstrap.min.js"></script>
     <script>
+        
         function getStudents(classid) {
             if (classid === '') {
                 $('#studentid').html('<option value="">-- Selecciona un estudiante --</option>');
@@ -471,7 +472,7 @@ $teacherRole = $_SESSION['rol'] ?? null;
                 return;
             }
             
-            $.post("get_student.php", {classid: classid}, function(data) {
+            $.post("get_student.php?lang=es", {classid: classid}, function(data) {
                 $('#studentid').html(data);
                 $('#resultsPanel').html('');
             });
@@ -489,7 +490,7 @@ $teacherRole = $_SESSION['rol'] ?? null;
                 return;
             }
 
-            $.post("get_student_results.php", {
+            $.post("get_student_results.php?lang=es", {
                 studentid: studentid,
                 classid: classid
             }, function(data) {
@@ -506,7 +507,7 @@ $teacherRole = $_SESSION['rol'] ?? null;
             }
             
             // Abrir el generador de PDF en nueva ventana
-            var pdfUrl = 'generate-group-grades.php?classid=' + classid;
+            var pdfUrl = 'generate-group-grades.php?classid=' + classid + '&lang=es';
             window.open(pdfUrl, '_blank');
         }
     </script>

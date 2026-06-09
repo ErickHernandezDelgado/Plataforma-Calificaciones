@@ -25,30 +25,31 @@ if (isset($_POST['submit'])) {
     $class = intval($_POST['class']);
     $studentid = intval($_POST['studentid']);
     $mark = $_POST['marks'] ?? []; // Array de calificaciones
-    $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type_id|period_number"
+    $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type|term_number"
 
     if (empty($periodo_data)) {
         $error = "Por favor selecciona un trimestre/bimestre.";
     } elseif (empty($mark)) {
         $error = "No hay materias asignadas a este grupo.";
     } else {
-        // Parsear period_type_id y period_number del formato "1|1" o "2|2"
+        // Parsear del formato "1|1" (Bimestre 1) o "2|3" (Trimestre 3)
         $periodo_parts = explode("|", $periodo_data);
-        $period_type_id = intval($periodo_parts[0] ?? 0);
-        $period_number = intval($periodo_parts[1] ?? 0);
+        $period_type = intval($periodo_parts[0] ?? 0);  // 1=Bimestre, 2=Trimestre
+        $term_number = intval($periodo_parts[1] ?? 0);  // 1-5 o 1-3
 
-        if ($period_type_id == 0 || $period_number == 0) {
+        if ($period_type == 0 || $term_number == 0) {
             $error = "Período inválido.";
         } else {
-            // 1. Obtener materias asignadas a la clase
+            // 1. Obtener materias asignadas a la clase (filtradas por ESPAÑOL)
             $stmt = $dbh->prepare("SELECT id 
                                    FROM tblsubjects 
                                    WHERE id IN (
                                        SELECT SubjectId FROM tblsubjectcombination 
                                        WHERE ClassId = :cid AND status = 1
                                    )
+                                   AND Language = :lang
                                    ORDER BY SubjectName");
-            $stmt->execute([':cid' => $class]);
+            $stmt->execute([':cid' => $class, ':lang' => 'es']);
             $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
             if (empty($subjectIds)) {
@@ -62,18 +63,21 @@ if (isset($_POST['submit'])) {
                             $val = intval($mark[$i]);  // marks es INT en la BD
                             $sid = intval($subjectIds[$i]);
 
-                            // CORRECCIÓN: Insertar con period_type_id y period_number (estructura real de BD)
-                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, period_type_id, period_number, term) 
-                                    VALUES(:studentid, :classid, :subjectid, :marks, :ptid, :pnum, :term)";
+                            // Insertar con estructura correcta: StudentId, ClassId, SubjectId, marks, term
+                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre, term, PostingDate) 
+                                    VALUES(:studentid, :classid, :subjectid, :marks, :trimestre, :term, NOW())";
                             $query = $dbh->prepare($sql);
+                            
+                            // Construir el texto Trimestre/Bimestre
+                            $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
+                            
                             $query->execute([
                                 ':studentid' => $studentid,
                                 ':classid' => $class,
                                 ':subjectid' => $sid,
                                 ':marks' => $val,
-                                ':ptid' => $period_type_id,
-                                ':pnum' => $period_number,
-                                ':term' => $period_number
+                                ':trimestre' => $trimestre_text,
+                                ':term' => $term_number
                             ]);
                         }
                     }
@@ -94,7 +98,7 @@ if (isset($_POST['submit'])) {
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>IPT | Agregar Resultado</title>
+    <title>IPT | Agregar Resultado - <?php echo $lang === 'en' ? 'English' : 'Español'; ?></title>
     <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
     <link rel="stylesheet" href="css/font-awesome.min.css" media="screen">
     <link rel="stylesheet" href="css/main.css" media="screen">
@@ -436,12 +440,13 @@ if (isset($_POST['submit'])) {
     <script src="js/jquery/jquery-2.2.4.min.js"></script>
     <script src="js/bootstrap/bootstrap.min.js"></script>
     <script>
+    
     function getPeriodos(val) {
         // Obtenemos el nivel desde el atributo data-level del option seleccionado
         var level = $('#classid option:selected').data('level');
         var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
         
-        // Generamos opciones según el nivel guardado en la base de datos
+        // Generamos opciones según el nivel educativo
         // 1|X para Bimestre, 2|X para Trimestre
         if(level === 'infantil') {
             for(var i=1; i<=5; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
@@ -450,12 +455,12 @@ if (isset($_POST['submit'])) {
         }
 
         // Carga de la lista de estudiantes
-        $.post("get_student.php", {classid: val}, function(data) {
+        $.post("get_student.php?lang=es", {classid: val}, function(data) {
             $("#studentid").html(data);
         });
 
-        // Carga de los inputs de materias (la tabla de captura)
-        $.post("get_student.php", {classid1: val}, function(data) {
+        // Carga de los inputs de materias
+        $.post("get_student.php?lang=es", {classid1: val}, function(data) {
             $("#subject").html(data);
         });
     }
@@ -470,11 +475,12 @@ if (isset($_POST['submit'])) {
             return;
         }
 
-        // Separamos el periodo para enviarlo a get_student.php
+        // Construir datos para validar duplicados: ClassId $ StudentId $ term
         var periodoParts = periodo.split('|');
-        var fullData = cid + '$' + val + '$' + periodoParts[0] + '$' + periodoParts[1];
+        var term_number = periodoParts[1];  // Solo necesitamos el número del término
+        var fullData = cid + '$' + val + '$' + term_number;
 
-        $.post("get_student.php", {
+        $.post("get_student.php?lang=es", {
             studclass: fullData
         }, function(data) {
             $("#reslt").html(data);

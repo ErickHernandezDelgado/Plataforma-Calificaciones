@@ -2,8 +2,13 @@
 /**
  * get_student.php
  * Endpoint AJAX para cargar estudiantes y materias por grupo
+ * Soporta filtrado por idioma: ?lang=es|en
+ * ESTRUCTURA REAL: tblsubjects(id, SubjectName, SubjectCode, Language, ...), tblresult(id, StudentId, ClassId, SubjectId, marks, Trimestre, term)
  */
 include(__DIR__ . '/includes/check-login.php');
+
+// PARÁMETRO DE IDIOMA
+$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'es';
 
 // 1. CARGA DE ESTUDIANTES PARA EL SELECTOR (Dropdown)
 if (!empty($_POST["classid"])) {
@@ -19,7 +24,8 @@ if (!empty($_POST["classid"])) {
             echo '<option value="' . htmlentities($student['StudentId']) . '">' . htmlentities($student['StudentName']) . '</option>';
         }
     } else {
-        echo '<option value="">No hay alumnos en este grupo</option>';
+        $no_students_msg = ($lang == 'en') ? 'No students in this class' : 'No hay alumnos en este grupo';
+        echo '<option value="">' . $no_students_msg . '</option>';
     }
 }
 
@@ -27,35 +33,36 @@ if (!empty($_POST["classid"])) {
 if (!empty($_POST["classid1"])) {
     $classid1 = intval($_POST['classid1']);
 
-    // CORRECCIÓN: Obtener educationLevel de tblclasses (no tblperiod_types que no existe)
+    // Obtener educationLevel de tblclasses
     $sql_period = "SELECT educationLevel FROM tblclasses WHERE id = :classid";
     $stmt_period = $dbh->prepare($sql_period);
     $stmt_period->execute([':classid' => $classid1]);
     $period_info = $stmt_period->fetch(PDO::FETCH_ASSOC);
 
     // Determinar tipo de período basado en educationLevel
-    $label = "Materia";
+    $label = ($lang == 'en') ? "Subjects" : "Materias";
     if ($period_info) {
         if ($period_info['educationLevel'] === 'infantil') {
-            $label = "Bimestrales (2 períodos)";
+            $label = ($lang == 'en') ? "Subjects (5 Periods)" : "Bimestrales (5 períodos)";
         } elseif ($period_info['educationLevel'] === 'primaria' || $period_info['educationLevel'] === 'secundaria') {
-            $label = "Trimestrales (3 períodos)";
+            $label = ($lang == 'en') ? "Subjects (3 Periods)" : "Trimestrales (3 períodos)";
         }
     }
 
-    // Obtener Materias del grupo
+    // Obtener Materias del grupo (filtradas por idioma usando Language enum)
+    $lang_filter = ($lang == 'en') ? 'en' : 'es';
     $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
                             FROM tblsubjects 
                             WHERE id IN (
                                 SELECT SubjectId FROM tblsubjectcombination 
                                 WHERE ClassId = :id AND status = 1
                             )
+                            AND Language = :lang
                             ORDER BY SubjectName");
-    $stmt2->execute([':id' => $classid1]);
+    $stmt2->execute([':id' => $classid1, ':lang' => $lang_filter]);
     $subjects = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
     if (count($subjects) > 0) {
-        // Mostramos el nombre del tipo de periodo (Bimestre o Trimestre) detectado
         echo '<h5 class="form-section-title">Carga Académica (' . htmlentities($label) . '):</h5>';
         
         foreach ($subjects as $subject) {
@@ -69,30 +76,30 @@ if (!empty($_POST["classid1"])) {
                   </div>';
         }
     } else {
-        echo '<p class="text-danger">No hay materias asignadas a este grupo.</p>';
+        $no_subjects_msg = ($lang == 'en') ? 'No subjects assigned to this class.' : 'No hay materias asignadas a este grupo.';
+        echo '<p class="text-danger">' . $no_subjects_msg . '</p>';
     }
 }
 
-// 3. VALIDACIÓN DE DUPLICADOS
+// 3. VALIDACIÓN DE DUPLICADOS (estructura real: StudentId, ClassId, SubjectId, term)
 if (!empty($_POST["studclass"])) {
     $data = explode("$", $_POST['studclass']);
-    if(count($data) >= 4) {
+    if(count($data) >= 3) {
         $cid = intval($data[0]);
         $sid = intval($data[1]);
-        $ptid = intval($data[2]);      // period_type_id
-        $pnum = intval($data[3]);      // period_number
+        $term = intval($data[2]);  // término/trimestre (1, 2, 3, 4, 5)
 
-        // CORRECCIÓN: Buscar en tblresult usando period_type_id y period_number (estructura real)
+        // Buscar en tblresult usando StudentId, ClassId, term
         $sql = "SELECT id FROM tblresult 
-                WHERE StudentId = :sid AND ClassId = :cid AND period_type_id = :ptid AND period_number = :pnum
+                WHERE StudentId = :sid AND ClassId = :cid AND term = :term
                 LIMIT 1";
         $query = $dbh->prepare($sql);
-        $query->execute([':sid' => $sid, ':cid' => $cid, ':ptid' => $ptid, ':pnum' => $pnum]);
+        $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term]);
 
         if ($query->rowCount() > 0) {
+            $duplicate_msg = ($lang == 'en') ? 'This student already has grades recorded for this period.' : 'El alumno ya cuenta con resultados registrados para este período.';
             echo '<div class="alert alert-warning" style="margin-top:10px;">
-                    <i class="fa fa-exclamation-triangle"></i> 
-                    El alumno ya cuenta con resultados registrados para este período.
+                    <i class="fa fa-exclamation-triangle"></i> ' . $duplicate_msg . '
                   </div>';
         }
     }
