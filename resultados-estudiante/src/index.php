@@ -51,6 +51,8 @@ if (isset($_POST['login'])) {
             case 'teacher':
                 if (!is_null($user->teacher_id)) {
                     $_SESSION['teacherid'] = $user->teacher_id;
+                    $_SESSION['role'] = 'teacher';
+                    $_SESSION['id'] = $user->id;
                     header("Location: dashboard-teacher.php");
                     exit;
                 } else {
@@ -60,6 +62,8 @@ if (isset($_POST['login'])) {
 
             case 'tutor':
                 $_SESSION['tutorid'] = $user->id;
+                $_SESSION['role'] = 'tutor';
+                $_SESSION['id'] = $user->id;
                 header("Location: portal-tutor.php");
                 exit;
 

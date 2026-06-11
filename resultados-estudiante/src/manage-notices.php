@@ -100,7 +100,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                                     <th>Enviado a</th>
                                                     <th>Visto por</th>
                                                     <th>Fecha Creación</th>
-                                                    <th>Acción</th>
+                                                    <th>Acciones</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -174,10 +174,13 @@ if (strlen($_SESSION['alogin']) == "") {
                                                             <!-- Fecha de publicación -->
                                                             <td><?php echo htmlentities($result->postingDate); ?></td>
 
-                                                            <!-- Botón para eliminar el comunicado -->
+                                                            <!-- Botones de acción -->
                                                             <td>
-                                                                <a href="manage-notices.php?id=<?php echo htmlentities($result->id); ?>" onclick="return confirm('Deseas eliminar este comunicado?');" class="btn btn-danger">
-                                                                    <i class="fa fa-trash" title="Eliminar este registro"></i>
+                                                                <button class="btn btn-info btn-sm" onclick="loadNoticeDetails(<?php echo intval($result->id); ?>)" title="Ver detalles del anuncio">
+                                                                    <i class="fa fa-eye"></i> Ver
+                                                                </button>
+                                                                <a href="manage-notices.php?id=<?php echo htmlentities($result->id); ?>" onclick="return confirm('Deseas eliminar este comunicado?');" class="btn btn-danger btn-sm" title="Eliminar este anuncio">
+                                                                    <i class="fa fa-trash"></i>
                                                                 </a>
                                                             </td>
                                                         </tr>
@@ -222,6 +225,82 @@ if (strlen($_SESSION['alogin']) == "") {
 
     <!-- Incluye pie de página -->
     <?php include('includes/footer.php'); ?>
+
+    <!-- Modal para ver detalles del anuncio -->
+    <div class="modal fade" id="noticeDetailsModal" tabindex="-1" role="dialog" aria-labelledby="noticeDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #0F9B3A 0%, #065D21 100%); color: white;">
+                    <h5 class="modal-title" id="noticeDetailsModalLabel" style="color: white;">Detalles del Anuncio</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="noticeDetailsContent">
+                    <div class="text-center">
+                        <i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: #0F9B3A;"></i>
+                        <p>Cargando detalles...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        function loadNoticeDetails(noticeId) {
+            $.ajax({
+                url: 'get-notice-details.php?id=' + noticeId,
+                method: 'GET',
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        const notice = response.notice;
+                        let html = '<div style="padding: 0;">';
+                        
+                        // Header info
+                        html += '<div style="background: #f8f9fa; padding: 15px; margin-bottom: 20px; border-left: 4px solid #0F9B3A;">';
+                        html += '<p style="margin: 5px 0;"><strong>Creado por:</strong> ' + notice.created_by + '</p>';
+                        html += '<p style="margin: 5px 0;"><strong>Fecha:</strong> ' + notice.date + '</p>';
+                        html += '<p style="margin: 5px 0;"><strong>Dirigido a:</strong> ' + notice.audience + '</p>';
+                        html += '</div>';
+                        
+                        // Stats boxes
+                        html += '<div class="row" style="margin-bottom: 20px;">';
+                        html += '<div class="col-md-3 text-center"><div style="background: #e8f5e9; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #0F9B3A; font-weight: bold;">' + notice.total_recipients + '</div><small>Total Destinatarios</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #c8e6c9; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #2e7d32; font-weight: bold;">' + notice.viewed_count + '</div><small>Ya Visto</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #fff9c4; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #f57f17; font-weight: bold;">' + notice.pending_count + '</div><small>Pendiente</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #e0f2f1; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #00695c; font-weight: bold;">' + notice.percentage + '%</div><small>Tasa Lectura</small></div></div>';
+                        html += '</div>';
+                        
+                        // Content
+                        html += '<div style="margin-bottom: 20px; padding: 15px; background: #fafafa; border-radius: 5px;">';
+                        html += '<h6 style="color: #0F9B3A; margin-bottom: 10px;"><strong>Contenido del Anuncio:</strong></h6>';
+                        html += '<p style="line-height: 1.6; color: #555; white-space: pre-wrap;">' + notice.content + '</p>';
+                        html += '</div>';
+                        
+                        // Recipients table
+                        html += '<div style="margin-top: 20px;">';
+                        html += '<h6 style="color: #0F9B3A; margin-bottom: 10px;"><strong>Destinatarios y Estado de Lectura:</strong></h6>';
+                        html += '<div style="max-height: 400px; overflow-y: auto;">';
+                        html += response.recipients_html;
+                        html += '</div>';
+                        html += '</div>';
+                        
+                        html += '</div>';
+                        
+                        $('#noticeDetailsContent').html(html);
+                        $('#noticeDetailsModal').modal('show');
+                    } else {
+                        $('#noticeDetailsContent').html('<div class="alert alert-danger">Error: ' + response.message + '</div>');
+                    }
+                },
+                error: function() {
+                    $('#noticeDetailsContent').html('<div class="alert alert-danger">Error al cargar los detalles del anuncio.</div>');
+                }
+            });
+        }
+    </script>
 
 <?php } ?>
 
