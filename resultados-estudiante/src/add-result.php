@@ -505,3 +505,4 @@ if (isset($_POST['submit'])) {
 </body>
 </html>
 <?php include('includes/footer.php'); ?>
+<?php include('includes/p_footer.php'); ?>

@@ -290,3 +290,4 @@ $notices = $query->fetchAll(PDO::FETCH_OBJ);
     </script>
 </body>
 </html>
+  <?php include('includes/footer.php'); ?>
