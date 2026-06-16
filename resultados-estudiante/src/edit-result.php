@@ -5,6 +5,8 @@
  */
 include(__DIR__ . '/includes/check-login.php');
 
+$lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'es';
+
 // Recibimos el ID de la calificación específica
 $resultid = intval($_GET['resultid'] ?? 0);
 
@@ -339,13 +341,13 @@ if (isset($_POST['submit'])) {
                                                 <?php
                                                 // Obtener información del estudiante y calificación usando vista
                                                 $info_sql = "SELECT s.StudentName, c.ClassName, c.Section, vr.term_name
-                                                            FROM tblstudents s 
+                                                            FROM tblstudents s
                                                             JOIN tblclasses c ON c.id = :classid
-                                                            LEFT JOIN vw_result_with_terms vr ON vr.StudentId = s.StudentId AND vr.ClassId = :classid
-                                                            WHERE s.StudentId = :stid 
+                                                            LEFT JOIN vw_result_with_terms vr ON vr.StudentId = s.StudentId AND vr.ClassId = :classid AND vr.Language = :lang
+                                                            WHERE s.StudentId = :stid
                                                             LIMIT 1";
                                                 $info_stmt = $dbh->prepare($info_sql);
-                                                $info_stmt->execute([':stid' => $stid, ':classid' => $classid]);
+                                                $info_stmt->execute([':stid' => $stid, ':classid' => $classid, ':lang' => $lang]);
                                                 $data = $info_stmt->fetch(PDO::FETCH_OBJ);
                                                 ?>
                                                 <h5>Actualizando: <strong><?php echo htmlentities($data->StudentName ?? 'N/A'); ?></strong></h5>
@@ -362,15 +364,17 @@ if (isset($_POST['submit'])) {
                                                 // CORRECCIÓN: Usar vista vw_result_with_terms y tabla tblsubjects
                                                 $sql = "SELECT sub.SubjectName, vr.marks, vr.id as resultid, vr.term_name
                                                         FROM vw_result_with_terms vr
-                                                        JOIN tblsubjects sub ON sub.id = vr.SubjectId 
-                                                        WHERE vr.StudentId = :stid 
+                                                        JOIN tblsubjects sub ON sub.id = vr.SubjectId
+                                                        WHERE vr.StudentId = :stid
                                                         AND vr.ClassId = :classid
+                                                        AND vr.Language = :lang
                                                         ORDER BY sub.SubjectName";
-                                                
+
                                                 $query = $dbh->prepare($sql);
                                                 $query->execute([
                                                     ':stid' => $stid,
-                                                    ':classid' => $classid
+                                                    ':classid' => $classid,
+                                                    ':lang' => $lang
                                                 ]);
                                                 $results = $query->fetchAll(PDO::FETCH_OBJ);
 

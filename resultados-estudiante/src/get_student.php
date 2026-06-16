@@ -89,12 +89,14 @@ if (!empty($_POST["studclass"])) {
         $sid = intval($data[1]);
         $term = intval($data[2]);  // término/trimestre (1, 2, 3, 4, 5)
 
-        // Buscar en tblresult usando StudentId, ClassId, term
-        $sql = "SELECT id FROM tblresult 
-                WHERE StudentId = :sid AND ClassId = :cid AND term = :term
+        // Buscar en tblresult usando StudentId, ClassId, term Y el idioma de la materia
+        $sql = "SELECT tr.id FROM tblresult tr
+                JOIN tblsubjects ts ON ts.id = tr.SubjectId
+                WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
+                AND ts.Language = :lang
                 LIMIT 1";
         $query = $dbh->prepare($sql);
-        $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term]);
+        $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang]);
 
         if ($query->rowCount() > 0) {
             $duplicate_msg = ($lang == 'en') ? 'This student already has grades recorded for this period.' : 'El alumno ya cuenta con resultados registrados para este período.';
