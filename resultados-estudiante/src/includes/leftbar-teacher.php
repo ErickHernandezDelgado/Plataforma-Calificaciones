@@ -1,6 +1,7 @@
 <?php
-// Inicia la sesión para poder acceder a variables de sesión
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Verifica si la sesión no está activa o si el usuario no es un maestro
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {
@@ -15,6 +16,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {
     <div class="sidebar-content">
         <div class="sidebar-nav">
             <ul class="side-nav color-gray">
+                <li><a href="dashboard-teacher.php"><i class="fa fa-home"></i> <span>Inicio</span></a></li>
                 <!-- Encabezado de la sección de configuración -->
                 <li class="nav-header"><span>Configuración</span></li>
 
@@ -27,6 +29,16 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {
                         <li><a href="add-result.php"><i class="fa fa-plus"></i> <span>Agregar Resultado</span></a></li>
                         <!-- Enlace para ver o modificar resultados existentes -->
                         <li><a href="manage-results.php"><i class="fa fa-bars"></i> <span>Gestionar Resultados</span></a></li>
+                    </ul>
+                </li>
+
+                <!-- Menú con subelementos para la gestión de anuncios -->
+                <li class="has-children">
+                    <!-- Título principal de la sección -->
+                    <a href="#"><i class="fa fa-bell"></i> <span>Anuncios</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <ul class="child-nav">
+                        <!-- Enlace para crear un nuevo anuncio -->
+                        <li><a href="add-teacher-notice.php"><i class="fa fa-plus"></i> <span>Crear Anuncio</span></a></li>
                     </ul>
                 </li>
             </ul>

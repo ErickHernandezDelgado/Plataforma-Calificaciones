@@ -51,15 +51,36 @@ if (!empty($_POST["classid1"])) {
 
     // Obtener Materias del grupo (filtradas por idioma usando Language enum)
     $lang_filter = ($lang == 'en') ? 'en' : 'es';
-    $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
-                            FROM tblsubjects 
-                            WHERE id IN (
-                                SELECT SubjectId FROM tblsubjectcombination 
-                                WHERE ClassId = :id AND status = 1
-                            )
-                            AND Language = :lang
-                            ORDER BY SubjectName");
-    $stmt2->execute([':id' => $classid1, ':lang' => $lang_filter]);
+    $session_role     = $_SESSION['role']      ?? null;
+    $session_teacherid = $_SESSION['teacherid'] ?? null;
+
+    if ($session_role === 'teacher' && $session_teacherid) {
+        // Maestro: solo materias asignadas en tblteacher_subject para este grupo
+        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
+                                FROM tblsubjects
+                                WHERE id IN (
+                                    SELECT SubjectId FROM tblsubjectcombination
+                                    WHERE ClassId = :id AND status = 1
+                                )
+                                AND id IN (
+                                    SELECT SubjectId FROM tblteacher_subject
+                                    WHERE TeacherId = :tid AND ClassId = :id
+                                )
+                                AND Language = :lang
+                                ORDER BY SubjectName");
+        $stmt2->execute([':id' => $classid1, ':tid' => $session_teacherid, ':lang' => $lang_filter]);
+    } else {
+        // Admin: todas las materias del grupo
+        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
+                                FROM tblsubjects
+                                WHERE id IN (
+                                    SELECT SubjectId FROM tblsubjectcombination
+                                    WHERE ClassId = :id AND status = 1
+                                )
+                                AND Language = :lang
+                                ORDER BY SubjectName");
+        $stmt2->execute([':id' => $classid1, ':lang' => $lang_filter]);
+    }
     $subjects = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
     if (count($subjects) > 0) {
@@ -90,13 +111,33 @@ if (!empty($_POST["studclass"])) {
         $term = intval($data[2]);  // término/trimestre (1, 2, 3, 4, 5)
 
         // Buscar en tblresult usando StudentId, ClassId, term Y el idioma de la materia
-        $sql = "SELECT tr.id FROM tblresult tr
-                JOIN tblsubjects ts ON ts.id = tr.SubjectId
-                WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
-                AND ts.Language = :lang
-                LIMIT 1";
+        $dup_role      = $_SESSION['role']      ?? null;
+        $dup_teacherid = $_SESSION['teacherid'] ?? null;
+
+        if ($dup_role === 'teacher' && $dup_teacherid) {
+            // Maestro: solo verifica duplicados en sus materias asignadas
+            $sql = "SELECT tr.id FROM tblresult tr
+                    JOIN tblsubjects ts ON ts.id = tr.SubjectId
+                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
+                    AND ts.Language = :lang
+                    AND tr.SubjectId IN (
+                        SELECT SubjectId FROM tblteacher_subject
+                        WHERE TeacherId = :tid AND ClassId = :cid
+                    )
+                    LIMIT 1";
+        } else {
+            $sql = "SELECT tr.id FROM tblresult tr
+                    JOIN tblsubjects ts ON ts.id = tr.SubjectId
+                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
+                    AND ts.Language = :lang
+                    LIMIT 1";
+        }
         $query = $dbh->prepare($sql);
-        $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang]);
+        if ($dup_role === 'teacher' && $dup_teacherid) {
+            $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang, ':tid' => $dup_teacherid]);
+        } else {
+            $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang]);
+        }
 
         if ($query->rowCount() > 0) {
             $duplicate_msg = ($lang == 'en') ? 'This student already has grades recorded for this period.' : 'El alumno ya cuenta con resultados registrados para este período.';

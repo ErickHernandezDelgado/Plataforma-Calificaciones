@@ -1,12 +1,5 @@
 <?php
-// Muestra todos los errores durante desarrollo
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-// Inicia sesión
-session_start();
-include(__DIR__ . '/includes/config.php'); // Conexión a la base de datos
+include(__DIR__ . '/includes/check-login.php');
 
 // Verifica que el usuario haya iniciado sesión y que sea un maestro
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'teacher') {
@@ -134,7 +127,7 @@ $notices = $query->fetchAll(PDO::FETCH_OBJ);
                                 </div>
                                 <div class="panel-body p-20">
                                     <!-- Botón para agregar nuevo resultado -->
-                                    <a href="add-result2.php" class="btn btn-success">Agregar Nuevo Resultado</a>
+                                    <a href="add-result.php" class="btn btn-success">Agregar Nuevo Resultado</a>
 
                                     <!-- Botón para ver/gestionar resultados -->
                                     <a href="manage-results.php" class="btn btn-info">Ver Resultados</a>
@@ -156,7 +149,6 @@ $notices = $query->fetchAll(PDO::FETCH_OBJ);
                                 <div class="panel-body p-20">
                                     <!-- Botones de acción -->
                                     <a href="add-teacher-notice.php" class="btn btn-primary"><i class="fa fa-plus"></i> Crear Anuncio</a>
-                                    <a href="manage-teacher-notices.php" class="btn btn-info"><i class="fa fa-list"></i> Ver Mis Anuncios</a>
 
                                     <!-- Estadísticas -->
                                     <div class="notices-stats">
@@ -230,9 +222,9 @@ $notices = $query->fetchAll(PDO::FETCH_OBJ);
                                                 </td>
                                                 <td><?php echo htmlentities(date('d/m/Y H:i', strtotime($notice->postingDate))); ?></td>
                                                 <td>
-                                                    <a href="view-notice-recipients.php?id=<?php echo htmlentities($notice->id); ?>" class="btn btn-info btn-sm" title="Ver detalles">
+                                                    <button class="btn btn-info btn-sm" onclick="loadNoticeDetails(<?php echo intval($notice->id); ?>)" title="Ver detalles">
                                                         <i class="fa fa-eye"></i> Ver
-                                                    </a>
+                                                    </button>
                                                     <a href="manage-teacher-notices.php?delete=<?php echo htmlentities($notice->id); ?>" onclick="return confirm('¿Deseas eliminar este anuncio?');" class="btn btn-danger btn-sm" title="Eliminar">
                                                         <i class="fa fa-trash"></i>
                                                     </a>
@@ -254,11 +246,81 @@ $notices = $query->fetchAll(PDO::FETCH_OBJ);
     <!-- Pie de página -->
     <?php include('includes/footer.php'); ?>
 
+    <!-- Modal para ver detalles del anuncio -->
+    <div class="modal fade" id="noticeDetailsModal" tabindex="-1" role="dialog" aria-labelledby="noticeDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #0F9B3A 0%, #065D21 100%); color: white;">
+                    <h5 class="modal-title" id="noticeDetailsModalLabel" style="color: white;">Detalles del Anuncio</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: white; opacity: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="noticeDetailsContent">
+                    <div class="text-center">
+                        <i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: #0F9B3A;"></i>
+                        <p>Cargando detalles...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="assets/js/jquery.min.js"></script>
     <script src="assets/js/bootstrap.min.js"></script>
     <script src="assets/js/DataTables/datatables.min.js"></script>
     <script>
+        function loadNoticeDetails(noticeId) {
+            $('#noticeDetailsContent').html('<div class="text-center"><i class="fa fa-spinner fa-spin" style="font-size: 2rem; color: #0F9B3A;"></i><p>Cargando detalles...</p></div>');
+            $('#noticeDetailsModal').modal('show');
+            $.ajax({
+                url: 'get-notice-details.php?id=' + noticeId,
+                method: 'GET',
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        const notice = response.notice;
+                        let html = '<div style="padding: 0;">';
+
+                        html += '<div style="background: #f8f9fa; padding: 15px; margin-bottom: 20px; border-left: 4px solid #0F9B3A;">';
+                        html += '<p style="margin: 5px 0;"><strong>Creado por:</strong> ' + notice.created_by + '</p>';
+                        html += '<p style="margin: 5px 0;"><strong>Fecha:</strong> ' + notice.date + '</p>';
+                        html += '<p style="margin: 5px 0;"><strong>Dirigido a:</strong> ' + notice.audience + '</p>';
+                        html += '</div>';
+
+                        html += '<div class="row" style="margin-bottom: 20px;">';
+                        html += '<div class="col-md-3 text-center"><div style="background: #e8f5e9; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #0F9B3A; font-weight: bold;">' + notice.total_recipients + '</div><small>Total Destinatarios</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #c8e6c9; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #2e7d32; font-weight: bold;">' + notice.viewed_count + '</div><small>Ya Visto</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #fff9c4; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #f57f17; font-weight: bold;">' + notice.pending_count + '</div><small>Pendiente</small></div></div>';
+                        html += '<div class="col-md-3 text-center"><div style="background: #e0f2f1; padding: 15px; border-radius: 5px;"><div style="font-size: 1.5rem; color: #00695c; font-weight: bold;">' + notice.percentage + '%</div><small>Tasa Lectura</small></div></div>';
+                        html += '</div>';
+
+                        html += '<div style="margin-bottom: 20px; padding: 15px; background: #fafafa; border-radius: 5px;">';
+                        html += '<h6 style="color: #0F9B3A; margin-bottom: 10px;"><strong>Contenido del Anuncio:</strong></h6>';
+                        html += '<p style="line-height: 1.6; color: #555; white-space: pre-wrap;">' + notice.content + '</p>';
+                        html += '</div>';
+
+                        html += '<div style="margin-top: 20px;">';
+                        html += '<h6 style="color: #0F9B3A; margin-bottom: 10px;"><strong>Destinatarios y Estado de Lectura:</strong></h6>';
+                        html += '<div style="max-height: 400px; overflow-y: auto;">';
+                        html += response.recipients_html;
+                        html += '</div>';
+                        html += '</div>';
+
+                        html += '</div>';
+
+                        $('#noticeDetailsContent').html(html);
+                    } else {
+                        $('#noticeDetailsContent').html('<div class="alert alert-danger">Error: ' + response.message + '</div>');
+                    }
+                },
+                error: function() {
+                    $('#noticeDetailsContent').html('<div class="alert alert-danger">Error al cargar los detalles del anuncio.</div>');
+                }
+            });
+        }
+
         $(document).ready(function() {
             $('#noticesTable').DataTable({
                 "language": {

@@ -5,11 +5,7 @@
  * Registro de resultados por materia y periodo (Normalizado)
  */
 
-session_start();
-error_reporting(E_ALL); 
-ini_set('display_errors', 1);
-
-include(__DIR__ . '/includes/config.php');
+include(__DIR__ . '/includes/check-login.php');
 
 // Verificación de Sesión
 if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
@@ -41,15 +37,34 @@ if (isset($_POST['submit'])) {
             $error = "Período inválido.";
         } else {
             // 1. Obtener materias asignadas a la clase (filtradas por ESPAÑOL)
-            $stmt = $dbh->prepare("SELECT id 
-                                   FROM tblsubjects 
-                                   WHERE id IN (
-                                       SELECT SubjectId FROM tblsubjectcombination 
-                                       WHERE ClassId = :cid AND status = 1
-                                   )
-                                   AND Language = :lang
-                                   ORDER BY SubjectName");
-            $stmt->execute([':cid' => $class, ':lang' => 'es']);
+            $session_role      = $_SESSION['role']      ?? null;
+            $session_teacherid = $_SESSION['teacherid'] ?? null;
+
+            if ($session_role === 'teacher' && $session_teacherid) {
+                $stmt = $dbh->prepare("SELECT id
+                                       FROM tblsubjects
+                                       WHERE id IN (
+                                           SELECT SubjectId FROM tblsubjectcombination
+                                           WHERE ClassId = :cid AND status = 1
+                                       )
+                                       AND id IN (
+                                           SELECT SubjectId FROM tblteacher_subject
+                                           WHERE TeacherId = :tid AND ClassId = :cid
+                                       )
+                                       AND Language = :lang
+                                       ORDER BY SubjectName");
+                $stmt->execute([':cid' => $class, ':tid' => $session_teacherid, ':lang' => 'es']);
+            } else {
+                $stmt = $dbh->prepare("SELECT id
+                                       FROM tblsubjects
+                                       WHERE id IN (
+                                           SELECT SubjectId FROM tblsubjectcombination
+                                           WHERE ClassId = :cid AND status = 1
+                                       )
+                                       AND Language = :lang
+                                       ORDER BY SubjectName");
+                $stmt->execute([':cid' => $class, ':lang' => 'es']);
+            }
             $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
             if (empty($subjectIds)) {
@@ -98,7 +113,7 @@ if (isset($_POST['submit'])) {
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>IPT | Agregar Resultado - <?php echo $lang === 'en' ? 'English' : 'Español'; ?></title>
+    <title>IPT | Agregar Resultado</title>
     <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
     <link rel="stylesheet" href="css/font-awesome.min.css" media="screen">
     <link rel="stylesheet" href="css/main.css" media="screen">
@@ -334,7 +349,7 @@ if (isset($_POST['submit'])) {
         <div class="content-wrapper">
             <div class="content-container">
                 <?php 
-                if (isset($_SESSION['rol']) && $_SESSION['rol'] == 'teacher') {
+                if (isset($_SESSION['role']) && $_SESSION['role'] == 'teacher') {
                     include('includes/leftbar-teacher.php');
                 } else {
                     include('includes/leftbar.php');

@@ -34,7 +34,7 @@ if (isset($_POST['update_marks'])) {
 }
 
 $teacherId = $_SESSION['teacherid'] ?? null;
-$teacherRole = $_SESSION['rol'] ?? null;
+$teacherRole = $_SESSION['role'] ?? null;
 ?>
 <!DOCTYPE html>
 <html lang="es">
