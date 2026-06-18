@@ -135,10 +135,6 @@ if (isset($_POST['login'])) {
 
         .container-img {
             width: 50%;
-            justify-content: space-between;
-            /* Para empujar la barra bienvenida al fondo */
-
-            /* Configuración del Fondo (Imagen al 47% de opacidad) */
             background: linear-gradient(rgba(255, 255, 255, 0.53), rgba(255, 255, 255, 0.53)),
                 url('assets/images/indexbg.png');
             background-size: cover;
@@ -153,12 +149,43 @@ if (isset($_POST['login'])) {
             align-items: center;
             justify-content: center;
             padding: 0px 70px 0px 70px;
-            gap: 48px;
+            gap: 32px;
         }
 
         .container-title {
             width: 100%;
-            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .container-title-logo {
+            width: 140px;
+            height: auto;
+        }
+
+        .container-title-nombre {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--color-secundario);
+            margin: 0;
+            letter-spacing: 0.3px;
+        }
+
+        .container-title-divider {
+            width: 40px;
+            height: 3px;
+            background-color: var(--color-primario);
+            border-radius: 2px;
+        }
+
+        .container-title h3 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--color-acento);
+            margin: 0;
+            letter-spacing: 0.3px;
         }
 
         .form-group {
@@ -207,8 +234,8 @@ if (isset($_POST['login'])) {
 
         .login-button {
             width: 100%;
-            height: 40px;
-            background-color: var(--color-acento);
+            height: 44px;
+            background-color: var(--color-primario);
             color: var(--texto-blanco);
             border: none;
             border-radius: 8px;
@@ -216,10 +243,77 @@ if (isset($_POST['login'])) {
             font-weight: 700;
             font-size: 16px;
             cursor: pointer;
+            transition: background-color 0.2s ease, opacity 0.2s ease;
+        }
+
+        .login-button:hover {
+            background-color: var(--color-secundario);
+        }
+
+        .login-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
         }
 
         .a-password {
             color: var(--color-primario);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Mensaje de error */
+        .login-error {
+            width: 100%;
+            padding: 12px 18px;
+            background-color: #FDE8E8;
+            border-left: 4px solid #E53E3E;
+            border-radius: 6px;
+            color: #C53030;
+            font-size: 14px;
+            font-weight: 500;
+            box-sizing: border-box;
+        }
+
+        /* Wrapper password con ojo */
+        .input-password-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .input-password-wrapper .input-login {
+            padding-right: 48px;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--color-acento);
+            padding: 0;
+            display: flex;
+            align-items: center;
+            font-size: 16px;
+        }
+
+        .toggle-password:focus {
+            outline: none;
+        }
+
+        /* Visually hidden pero accesible para lectores de pantalla */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         .footer {
@@ -336,7 +430,6 @@ if (isset($_POST['login'])) {
         @media (max-width: 768px) {
             .portada {
                 flex-direction: column;
-                /* Fondo con la imagen de la escuela detrás de todo */
                 background: linear-gradient(rgba(255, 255, 255, 0.53), rgba(255, 255, 255, 0.53)),
                     url('assets/images/indexbg.png');
                 background-size: cover;
@@ -346,61 +439,45 @@ if (isset($_POST['login'])) {
 
             .container-img {
                 display: none;
-                /* Ocultamos la mitad de escritorio */
             }
 
             .container-form {
                 width: 100%;
                 padding: 60px 30px;
-                gap: 32px;
+                gap: 28px;
                 box-sizing: border-box;
                 justify-content: center;
                 flex-grow: 1;
             }
 
-            .container-title h3 {
-                font-size: 22px;
-                letter-spacing: 0.5px;
-                margin: 0;
-                color: var(--color-acento);
-                /* Manteniendo el título oscuro */
+            .container-title-logo {
+                width: 110px;
             }
 
-            /* INPUTS EN MÓVIL: Color Oscuro de Figma (#32344B) */
+            .container-title h3 {
+                font-size: 20px;
+            }
+
             .input-login {
                 background-color: var(--color-acento);
                 color: var(--texto-blanco);
-                text-transform: lowercase;
             }
 
             .input-login::placeholder {
                 color: rgba(255, 255, 255, 0.7);
-                /* Texto del placeholder en blanco suave */
-                font-weight: 700;
-                text-transform: lowercase;
-            }
-
-            /* BOTÓN EN MÓVIL: Verde Brillante de Figma (#0F9B3A) */
-            .login-button {
-                background-color: var(--color-primario);
-                color: var(--texto-blanco);
-                text-transform: uppercase;
-                /* Fuerza el "ENTRAR" en mayúsculas */
-                font-weight: 700;
-                box-shadow: 0 4px 12px rgba(15, 155, 58, 0.2);
-                /* Sutil destello verde abajo */
-            }
-
-            /* ENLACE RECUPERAR: Mismo tono oscuro del input */
-            .a-password {
-                color: var(--color-acento);
-                text-decoration: underline;
-                font-size: 14px;
                 font-weight: 600;
             }
 
+            .toggle-password {
+                color: rgba(255, 255, 255, 0.7);
+            }
+
             .container-bottom p {
-                margin-top: 20px;
+                margin-top: 16px;
+            }
+
+            .a-password {
+                color: var(--color-acento);
             }
         }
     </style>
@@ -408,46 +485,60 @@ if (isset($_POST['login'])) {
 
 <body>
 
-    <!-- Mensajes -->
-    <?php if ($msg): ?>
-        <div id="message">
-            <?php echo htmlentities($msg); ?>
-        </div>
-    <?php endif; ?>
-
     <section class="portada">
-        <div class="container-img">
-        </div>
-        <!-- Formulario de Login -->
+        <!-- Panel izquierdo: imagen de fondo institucional -->
+        <div class="container-img"></div>
+
+        <!-- Panel derecho: identidad + formulario -->
         <div class="container-form">
             <div class="container-title">
-                <h3>INICIO DE SESION</h3>
+                <img src="assets/images/logo_no_bg.png" alt="Logo Instituto Panamericano" class="container-title-logo">
+                <p class="container-title-nombre">Instituto Panamericano de Tampico</p>
+                <div class="container-title-divider"></div>
+                <h3>Inicio de Sesión</h3>
             </div>
-            <form method="POST" action="" class="form-group">
+
+            <?php if ($msg): ?>
+                <div class="login-error" role="alert">
+                    <i class="fa fa-exclamation-circle" aria-hidden="true"></i>
+                    <?php echo htmlentities($msg); ?>
+                </div>
+            <?php endif; ?>
+
+            <form method="POST" action="" class="form-group" id="loginForm">
                 <div class="container-input">
+                    <label for="username" class="sr-only">Correo electrónico</label>
                     <input
                         type="text"
                         id="username"
                         name="username"
-                        placeholder="Correo electronico"
+                        placeholder="Correo electrónico"
                         required
                         autofocus
+                        autocomplete="username"
                         class="input-login" />
                 </div>
 
                 <div class="container-input">
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        placeholder="contraseña"
-                        required
-                        class="input-login" />
+                    <label for="password" class="sr-only">Contraseña</label>
+                    <div class="input-password-wrapper">
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            placeholder="Contraseña"
+                            required
+                            autocomplete="current-password"
+                            class="input-login" />
+                        <button type="button" class="toggle-password" onclick="togglePassword()" aria-label="Mostrar u ocultar contraseña">
+                            <i class="fa fa-eye" id="toggleIcon"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="container-bottom">
                     <div class="container-button">
-                        <button type="submit" name="login" class="login-button">Iniciar Sesión</button>
+                        <button type="submit" name="login" id="loginBtn" class="login-button">Iniciar Sesión</button>
                     </div>
                     <p><a href="#" class="a-password" onclick="openPasswordModal(event)">Recuperar contraseña</a></p>
                 </div>
@@ -476,7 +567,6 @@ if (isset($_POST['login'])) {
     </footer>
 
     <script>
-        // Funciones para manejar el modal de recuperar contraseña
         function openPasswordModal(event) {
             event.preventDefault();
             document.getElementById('passwordModal').style.display = 'block';
@@ -486,13 +576,32 @@ if (isset($_POST['login'])) {
             document.getElementById('passwordModal').style.display = 'none';
         }
 
-        // Cerrar modal al hacer clic fuera de él
         window.onclick = function(event) {
             var modal = document.getElementById('passwordModal');
             if (event.target == modal) {
                 modal.style.display = 'none';
             }
         }
+
+        function togglePassword() {
+            var input = document.getElementById('password');
+            var icon = document.getElementById('toggleIcon');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', function() {
+            var btn = document.getElementById('loginBtn');
+            setTimeout(function() {
+                btn.disabled = true;
+                btn.textContent = 'Verificando...';
+            }, 0);
+        });
     </script>
 
 </body>

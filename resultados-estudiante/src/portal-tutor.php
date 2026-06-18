@@ -2,32 +2,24 @@
 
 /**
  * portal-tutor.php - Panel exclusivo para Tutores (Padres de Familia)
- * 
- * Permite al padre/tutor:
- * - Ver información de su hijo/a
- * - Ver calificaciones actuales
- * - Descargar boleta de calificaciones en PDF
  */
 
 session_start();
 error_reporting(0);
 include(__DIR__ . '/includes/config.php');
 
-// Verificar que sea tutor
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'tutor') {
     header("Location: index.php");
     exit;
 }
 
-// Obtener ID del tutor
 $tutor_id = $_SESSION['id'] ?? null;
-
 if (!$tutor_id) {
     die("Error: No se encontró ID de tutor");
 }
 
 // Obtener estudiante(s) del tutor
-$sql = "SELECT 
+$sql = "SELECT
             st.StudentId,
             s.StudentName,
             s.RollId,
@@ -46,37 +38,39 @@ $query->execute();
 $students = $query->fetchAll(PDO::FETCH_OBJ);
 
 $selected_student_id = $_GET['student_id'] ?? ($students[0]->StudentId ?? null);
-$selected_student = null;
+$selected_student    = null;
 $student_grades_spanish = [];
 $student_grades_english = [];
-$student_notices = [];
-$pending_notices_count = 0;
+$student_notices        = [];
+$pending_notices_count  = 0;
+$current_student_index  = 0;
+$total_students         = count($students);
 
 if ($selected_student_id) {
-    // Verificar que el tutor tenga permisos sobre este estudiante
-    $sql = "SELECT * FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid";
+    $sql   = "SELECT * FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid";
     $check = $dbh->prepare($sql);
     $check->bindParam(':sid', $selected_student_id, PDO::PARAM_INT);
     $check->bindParam(':tid', $tutor_id, PDO::PARAM_INT);
     $check->execute();
 
     if ($check->rowCount() > 0) {
-        // Obtener datos del estudiante seleccionado
-        $sql = "SELECT s.*, c.ClassName, c.Section FROM tblstudents s 
-                JOIN tblclasses c ON s.ClassId = c.id 
+        $sql = "SELECT s.*, c.ClassName, c.Section FROM tblstudents s
+                JOIN tblclasses c ON s.ClassId = c.id
                 WHERE s.StudentId = :sid";
         $query = $dbh->prepare($sql);
         $query->bindParam(':sid', $selected_student_id, PDO::PARAM_INT);
         $query->execute();
         $selected_student = $query->fetch(PDO::FETCH_OBJ);
 
-        // Obtener calificaciones de ESPAÑOL del estudiante
-        $sql = "SELECT 
+        // Calificaciones ESPAÑOL — 5 términos
+        $sql = "SELECT
                     subj.SubjectName,
                     subj.id AS SubjectId,
                     MAX(CASE WHEN r.term = 1 THEN r.marks END) AS term1,
                     MAX(CASE WHEN r.term = 2 THEN r.marks END) AS term2,
-                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3
+                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3,
+                    MAX(CASE WHEN r.term = 4 THEN r.marks END) AS term4,
+                    MAX(CASE WHEN r.term = 5 THEN r.marks END) AS term5
                 FROM tblresult r
                 JOIN tblsubjects subj ON r.SubjectId = subj.id
                 WHERE r.StudentId = :sid AND subj.Language = 'es'
@@ -87,13 +81,15 @@ if ($selected_student_id) {
         $query->execute();
         $student_grades_spanish = $query->fetchAll(PDO::FETCH_OBJ);
 
-        // Obtener calificaciones de INGLÉS del estudiante
-        $sql = "SELECT 
+        // Calificaciones INGLÉS — 5 términos
+        $sql = "SELECT
                     subj.SubjectName,
                     subj.id AS SubjectId,
                     MAX(CASE WHEN r.term = 1 THEN r.marks END) AS term1,
                     MAX(CASE WHEN r.term = 2 THEN r.marks END) AS term2,
-                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3
+                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3,
+                    MAX(CASE WHEN r.term = 4 THEN r.marks END) AS term4,
+                    MAX(CASE WHEN r.term = 5 THEN r.marks END) AS term5
                 FROM tblresult r
                 JOIN tblsubjects subj ON r.SubjectId = subj.id
                 WHERE r.StudentId = :sid AND subj.Language = 'en'
@@ -104,8 +100,8 @@ if ($selected_student_id) {
         $query->execute();
         $student_grades_english = $query->fetchAll(PDO::FETCH_OBJ);
 
-        // Obtener notificaciones/anuncios del estudiante
-        $sql = "SELECT 
+        // Notificaciones
+        $sql = "SELECT
                     ns.id as notice_student_id,
                     tn.id as notice_id,
                     tn.noticeTitle,
@@ -126,79 +122,73 @@ if ($selected_student_id) {
         $query_notices->execute();
         $student_notices = $query_notices->fetchAll(PDO::FETCH_OBJ);
 
-        // Contar notificaciones pendientes
-        $pending_notices_count = 0;
         foreach ($student_notices as $notice) {
-            if ($notice->is_viewed == 0) {
-                $pending_notices_count++;
+            if ($notice->is_viewed == 0) $pending_notices_count++;
+        }
+
+        // Índice del estudiante actual para el indicador de paginación
+        foreach ($students as $i => $s) {
+            if ($s->StudentId == $selected_student_id) {
+                $current_student_index = $i;
+                break;
             }
         }
     }
 }
 
+// Helper para calcular promedio de una fila de calificaciones
+function calcAvg($grade) {
+    $terms = array_filter([$grade->term1, $grade->term2, $grade->term3, $grade->term4, $grade->term5]);
+    return count($terms) > 0 ? array_sum($terms) / count($terms) : 0;
+}
+
 ?>
-
-
-
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal de Tutores - Instituto Panamericano</title>
 
-    <!-- Font Awesome -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
     <style>
+        /* =====================================================
+           VARIABLES
+        ===================================================== */
         :root {
-            /* Verdes Institucionales */
-            --color-primario: #0F9B3A;
-            /* Color 1: Verde brillante */
-            --color-secundario: #065D21;
-            /* Color 2: Verde oscuro */
-
-            /* Identidad Visual / Fondos Oscuros */
-            --color-acento: #32344B;
-            /* Color 3: Azul oscuro/Grisáceo */
-
-            /* Variantes de Blanco / Fondos Claros */
-            --blanco-fondo: #F0F7F3;
-            /* Blanco 1: Fondo general */
-            --blanco-suave: #E4F6EA;
-            /* Blanco 2: Contenedores/Inputs */
-
-            /* Opcionales útiles */
-            --texto-blanco: #FFFFFF;
-            --sombra-suave: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --verde:       #0F9B3A;
+            --verde-dark:  #065D21;
+            --acento:      #32344B;
+            --fondo:       #F0F7F3;
+            --fondo-card:  #E4F6EA;
+            --blanco:      #FFFFFF;
+            --rojo:        #E84545;
+            --rojo-suave:  #FFF0F0;
+            --sombra:      0 4px 16px rgba(0,0,0,0.08);
+            --sombra-lg:   0 8px 32px rgba(0,0,0,0.13);
+            --radius:      16px;
+            --radius-sm:   8px;
         }
 
-        * {
-            box-sizing: border-box;
-        }
+        /* =====================================================
+           RESET Y BASE
+        ===================================================== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        html,
-        body {
+        html, body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--fondo);
+            color: var(--acento);
             overflow-x: hidden;
         }
 
-        body,
-        .main-container,
-        .content-section {
-            font-family: 'Poppins', sans-serif;
-            background-color: var(--blanco-fondo);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-            width: 100%;
-        }
-
+        /* =====================================================
+           HERO / CABECERA
+        ===================================================== */
         .hero-section {
             width: 100%;
             min-height: 100vh;
@@ -206,1698 +196,1384 @@ if ($selected_student_id) {
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-
             background:
-                linear-gradient(rgba(255, 255, 255, 0.55),
-                    rgba(255, 255, 255, 0.55)),
-                url('assets/images/pexels-pixabay-2166.jpg');
-
-            background-size: cover;
-            background-position: center;
+                linear-gradient(rgba(255,255,255,0.52), rgba(255,255,255,0.52)),
+                url('assets/images/pexels-pixabay-2166.jpg') center/cover no-repeat;
             overflow: hidden;
         }
 
-        /* LOGO */
-
         .logo-container {
-            padding: 24px 20px 0 20px;
+            padding: 32px 36px 0;
             z-index: 2;
         }
 
         .school-logo {
-            width: clamp(120px, 35vw, 170px);
+            width: clamp(160px, 22vw, 240px);
             height: auto;
+            filter: drop-shadow(0 2px 8px rgba(0,0,0,0.12));
         }
 
-        /* USER CARD */
-
+        /* =====================================================
+           USER CARD
+        ===================================================== */
         .user-card {
             position: absolute;
-            top: 20px;
-            right: 20px;
-
-            width: 145px;
-
-            background-color: var(--color-primario);
-
-            border-radius: 0 0 22px 22px;
-
-            padding: 14px 10px;
-
+            top: 0;
+            right: 24px;
+            width: 152px;
+            background: var(--verde);
+            border-radius: 0 0 24px 24px;
+            padding: 16px 12px 14px;
             display: flex;
             flex-direction: column;
             align-items: center;
-
-            color: white;
-
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-
-            z-index: 3;
+            gap: 4px;
+            color: var(--blanco);
+            box-shadow: var(--sombra-lg);
+            z-index: 10;
         }
 
         .user-carousel {
             width: 100%;
-
             display: flex;
             align-items: center;
             justify-content: space-between;
-
-            margin-bottom: 8px;
+            margin-bottom: 4px;
         }
 
         .nav-arrow {
-            color: rgba(255, 255, 255, 0.75);
-            font-size: 18px;
+            color: rgba(255,255,255,0.7);
+            font-size: 17px;
             text-decoration: none;
-            transition: 0.2s ease;
+            transition: color .2s, transform .2s;
+            padding: 4px 6px;
+            border-radius: 50%;
         }
+        .nav-arrow:hover { color: var(--blanco); transform: scale(1.15); }
+        .nav-arrow.disabled { opacity: .25; pointer-events: none; cursor: default; }
 
-        .nav-arrow:hover {
-            color: white;
-            transform: scale(1.1);
-        }
-
-        .user-icon {
-            font-size: 42px;
-            color: white;
-        }
+        .user-icon { font-size: 40px; }
 
         .user-name {
             font-size: 11px;
             font-weight: 700;
             text-align: center;
-            line-height: 1.3;
+            line-height: 1.35;
+            padding: 0 4px;
+        }
+
+        /* Indicador de paginación de hijos */
+        .student-counter {
+            font-size: 10px;
+            opacity: .75;
+            letter-spacing: .5px;
         }
 
         .logout-link {
-            margin-top: 6px;
-
             font-size: 10px;
-            color: var(--blanco-suave);
-
+            color: var(--fondo-card);
             text-decoration: underline;
+            margin-top: 2px;
         }
 
-        /* WELCOME BAR */
-
+        /* =====================================================
+           WELCOME BAR
+        ===================================================== */
         .welcome-bar {
             width: 100%;
-
-            background-color: var(--color-primario);
-
-            padding: 22px 24px 28px 24px;
-
-            color: white;
-
+            background: var(--verde);
+            padding: 24px 28px 30px;
+            color: var(--blanco);
             text-align: center;
-
             z-index: 2;
         }
 
         .welcome-bar h1 {
-            margin: 0;
-
-            font-size: clamp(24px, 7vw, 34px);
-
+            font-size: clamp(22px, 6vw, 34px);
             font-weight: 800;
-
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
         }
 
         .welcome-bar p {
             margin-top: 8px;
-
-            font-size: clamp(13px, 3.5vw, 16px);
-
+            font-size: clamp(13px, 3.2vw, 15px);
+            opacity: .9;
             line-height: 1.5;
-
-            opacity: 0.95;
         }
 
+        /* =====================================================
+           LAYOUT PRINCIPAL
+        ===================================================== */
+        .page-content {
+            width: 100%;
+            max-width: 1040px;
+            margin: 0 auto;
+            padding: 0 24px 60px;
+            display: flex;
+            flex-direction: column;
+            gap: 48px;
+        }
 
-        /* Contenedor Principal de Contenido */
+        /* =====================================================
+           DATOS DEL ALUMNO
+        ===================================================== */
         .student-info-section {
-            height: 100%;
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 50px 71px 50px 71px;
+            justify-content: center;
+            padding-top: 48px;
         }
 
-        /* Tarjeta de Datos del Alumno */
         .student-info-box {
-            background-color: var(--blanco-suave);
-            /* Tu Blanco 2: #E4F6EA */
-            display: flex;
-            flex-direction: column;
-            align-self: center;
-            border-radius: 20px;
-            /* Radio de esquina según Figma */
-            padding: 30px 86px 30px 86px;
-            /* Margen interior exacto de tu captura */
-            box-shadow: var(--sombra-suave);
+            background: var(--fondo-card);
+            border-radius: var(--radius);
+            padding: 32px 48px;
+            box-shadow: var(--sombra);
+            width: 100%;
+            max-width: 680px;
         }
 
-        .student-info-box h3 {
-            color: var(--color-acento);
-            /* Tu Color 3: #32344B */
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 30px;
+        .section-title {
+            font-size: 1rem;
+            font-weight: 800;
             text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--acento);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        /* Grid de Información */
-        .info-display-grid {
+        .section-title::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 1.2em;
+            background: var(--verde);
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .info-grid {
             display: grid;
-            grid-template-columns: 200px 1fr;
-            /* Columna fija para etiquetas */
-            row-gap: 20px;
-        }
-
-        .info-row {
-            display: contents;
-            /* Permite que los hijos se alineen al grid principal */
+            grid-template-columns: auto 1fr;
+            row-gap: 16px;
+            column-gap: 32px;
         }
 
         .info-label {
-            color: var(--color-acento);
             font-weight: 700;
-            font-size: 1.1rem;
+            font-size: .95rem;
+            color: var(--acento);
+            white-space: nowrap;
         }
 
         .info-value {
-            color: var(--color-acento);
             font-weight: 400;
-            font-size: 1.1rem;
-            text-align: left;
-            padding-left: 100px;
-            /* Espacio visual entre etiqueta y valor */
+            font-size: .95rem;
+            color: var(--acento);
+            word-break: break-word;
         }
 
-
-
-
-
-        /* Contenedor de la tabla */
-        /* --- Ajustes para la sección de Calificaciones --- */
-
-        .grades-section {
-            width: 100%;
-            max-width: 1000px;
-            /* Ajusta según el ancho de tu diseño */
-            padding: 0 20px;
+        /* =====================================================
+           SECCIÓN DE CALIFICACIONES
+        ===================================================== */
+        .grades-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
         }
 
-        .grades-section h3 {
-            color: var(--color-acento);
-            font-size: 1.4rem;
-            font-weight: 800;
-            margin-bottom: 25px;
-            position: relative;
-            padding-left: 15px;
-            margin-top: 50px;
+        .grades-header .section-title { margin-bottom: 0; }
+
+        .promedio-badge {
+            background: var(--acento);
+            color: var(--blanco);
+            font-size: .85rem;
+            font-weight: 700;
+            padding: 6px 18px;
+            border-radius: 999px;
+            white-space: nowrap;
         }
 
-        /* El indicador verde al lado del título CALIFICACIÓN */
-        .grades-section h3::before {
-            content: "";
-            position: absolute;
-            left: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 6px;
-            height: 100%;
-            background-color: var(--color-primario);
-            border-radius: 10px;
-        }
-
+        /* Tabla desktop */
         .grades-table-wrapper {
             width: 100%;
             overflow-x: auto;
-            /* Por si hay muchas columnas en móvil */
+            border-radius: var(--radius);
         }
 
         .grades-table {
             width: 100%;
             border-collapse: separate;
-            border-spacing: 0 15px;
-            /* Espacio vertical entre cada 'píldora' */
+            border-spacing: 0 10px;
         }
 
-        /* Cabeceras de la tabla */
         .grades-table thead th {
-            color: var(--color-acento);
-            opacity: 0.7;
+            color: var(--acento);
+            opacity: .6;
             font-weight: 700;
-            font-size: 0.9rem;
-            padding: 10px;
+            font-size: .8rem;
+            padding: 6px 16px;
             text-transform: uppercase;
+            letter-spacing: .5px;
+            text-align: center;
         }
 
-        /* Filas de materias */
+        .grades-table thead th:first-child { text-align: left; }
+
         .grade-item-row td {
-            padding: 20px;
-            color: white;
-            font-size: 1.1rem;
+            padding: 18px 16px;
+            color: var(--blanco);
+            font-size: 1rem;
+            text-align: center;
+            transition: filter .2s;
         }
 
-        /* Redondear solo las esquinas exteriores de la fila */
+        .grade-item-row:hover td { filter: brightness(1.08); }
+
         .grade-item-row td:first-child {
-            border-radius: 20px 0 0 20px;
-            padding-left: 40px;
-            /* Más espacio para el nombre de la materia */
-            width: 40%;
+            border-radius: 14px 0 0 14px;
+            padding-left: 28px;
+            text-align: left;
+            width: 38%;
         }
 
-        .grade-item-row td:last-child {
-            border-radius: 0 20px 20px 0;
+        .grade-item-row td:last-child { border-radius: 0 14px 14px 0; }
+
+        .grade-item-row:nth-child(odd) td  { background: var(--verde); }
+        .grade-item-row:nth-child(even) td { background: var(--acento); }
+
+        /* Calificación baja en rojo */
+        .grade-low { color: #FFD0D0; font-weight: 700; }
+
+        /* Mobile cards de calificaciones */
+        .mobile-grades-list { display: none; }
+
+        /* Toggle colapsable para móvil */
+        .grades-toggle-btn {
+            display: none; /* visible solo en mobile via media query */
         }
 
-        /* Colores alternados exactos */
-        .grade-item-row:nth-child(odd) td {
-            background-color: var(--color-primario);
-            /* Verde */
-        }
-
-        .grade-item-row:nth-child(even) td {
-            background-color: var(--color-acento);
-            /* Gris/Azul Oscuro */
-        }
-
-        /* Estilo para el botón de PDF (centrado) */
-        .action-buttons {
-            padding-right: 50px;
-            display: flex;
-            justify-content: space-between;
-            margin-top: 40px;
-        }
-
-        .btn-primary {
-            background-color: var(--color-acento);
-            color: white;
-            padding: 15px 40px;
-            border-radius: 8px;
-            /* Botón ovalado */
-            text-decoration: none;
-            font-weight: 700;
-            text-transform: uppercase;
-            box-shadow: 0 10px 20px rgba(15, 155, 58, 0.2);
-            transition: transform 0.2s;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-3px);
-        }
-
-        .promedio-container {
+        /* =====================================================
+           BOTONES DE ACCIÓN
+        ===================================================== */
+        .action-bar {
             display: flex;
             align-items: center;
+            justify-content: flex-end;
+            gap: 16px;
+            margin-top: 8px;
+            flex-wrap: wrap;
         }
 
-        .unidades {
-            padding: 10px;
-
+        .btn-pdf {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--acento);
+            color: var(--blanco);
+            padding: 12px 28px;
+            border-radius: var(--radius-sm);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: .88rem;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            transition: transform .2s, box-shadow .2s;
+            box-shadow: 0 4px 12px rgba(50,52,75,.25);
         }
 
-        .contenedor-unidades {
-            display: flex;
-            flex-direction: row;
-            justify-content: center;
+        .btn-pdf:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(50,52,75,.3);
         }
 
-        .footer {
-            width: 100%;
-            padding: 20px 0;
-            background-color: var(--color-acento);
-            color: white;
-            text-align: center;
-            margin-top: 50px;
+        .btn-pdf-large {
+            padding: 15px 40px;
+            font-size: 1rem;
+            letter-spacing: .8px;
+            background: var(--verde);
+            box-shadow: 0 6px 20px rgba(15,155,58,.3);
         }
+        .btn-pdf-large:hover { background: var(--verde-dark); box-shadow: 0 10px 28px rgba(15,155,58,.35); }
 
-        .linea-verde {
-            width: max;
-            height: 4px;
-            background-color: var(--color-primario);
-            margin: 10px auto 0 auto;
-        }
+        /* =====================================================
+           NOTIFICACIONES
+        ===================================================== */
+        .notices-section {}
 
-        /* ========================================================
-       SECCIÓN DE NOTIFICACIONES / ANUNCIOS
-   ======================================================== */
-        .notices-section {
-            width: 100%;
-            max-width: 1000px;
-            padding: 0 20px;
-            margin-top: 50px;
-        }
-
-        .notices-section h3 {
-            color: var(--color-acento);
-            font-size: 1.4rem;
-            font-weight: 800;
-            margin-bottom: 25px;
-            position: relative;
-            padding-left: 40px;
+        .notices-header {
             display: flex;
             align-items: center;
             gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
         }
 
-        .notices-section h3 i {
-            font-size: 1.6rem;
-            color: var(--color-primario);
-            position: absolute;
-            left: 0;
-        }
+        .notices-header .section-title { margin-bottom: 0; flex: 1; }
 
         .notices-badge {
-            display: inline-block;
-            background-color: #FF6B6B;
-            color: white;
-            border-radius: 50%;
-            width: 24px;
+            background: var(--rojo);
+            color: var(--blanco);
+            border-radius: 999px;
+            min-width: 24px;
             height: 24px;
+            padding: 0 7px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 700;
-            font-size: 0.75rem;
-            margin-left: auto;
-            margin-right: 0;
+            font-size: .72rem;
+        }
+
+        .notices-icon {
+            font-size: 1.3rem;
+            color: var(--verde);
         }
 
         .notices-container {
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
         }
 
         .notice-item {
-            background-color: var(--blanco-suave);
-            border-left: 5px solid var(--color-primario);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: var(--sombra-suave);
-            transition: all 0.3s ease;
+            background: var(--blanco);
+            border-left: 5px solid var(--verde);
+            border-radius: var(--radius-sm);
+            padding: 20px 24px;
+            box-shadow: var(--sombra);
+            transition: transform .25s, box-shadow .25s;
         }
 
         .notice-item.unread {
-            border-left: 5px solid #FF6B6B;
-            background-color: #FFF9F9;
+            border-left-color: var(--rojo);
+            background: var(--rojo-suave);
         }
 
         .notice-item:hover {
-            transform: translateX(5px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            transform: translateX(4px);
+            box-shadow: var(--sombra-lg);
         }
 
         .notice-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 12px;
+            gap: 12px;
+            margin-bottom: 10px;
         }
 
         .notice-title {
             font-weight: 700;
-            font-size: 1.1rem;
-            color: var(--color-acento);
-            margin: 0;
+            font-size: 1rem;
+            color: var(--acento);
             flex: 1;
         }
 
         .notice-status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
+            flex-shrink: 0;
+            padding: 3px 12px;
+            border-radius: 999px;
+            font-size: .72rem;
             font-weight: 700;
             text-transform: uppercase;
+            letter-spacing: .3px;
         }
 
-        .notice-status.pending {
-            background-color: #FFE5E5;
-            color: #FF6B6B;
-        }
-
-        .notice-status.viewed {
-            background-color: #D4EDDA;
-            color: #065D21;
-        }
+        .notice-status.pending { background: #FFE0E0; color: var(--rojo); }
+        .notice-status.viewed  { background: #D4EDDA; color: var(--verde-dark); }
 
         .notice-details {
             color: #555;
-            font-size: 0.95rem;
-            line-height: 1.5;
-            margin-bottom: 12px;
-            max-height: 80px;
+            font-size: .9rem;
+            line-height: 1.55;
+            margin-bottom: 14px;
+            position: relative;
+            max-height: 72px;
             overflow: hidden;
-            text-overflow: ellipsis;
+        }
+
+        /* Degradado de corte suave */
+        .notice-details::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 28px;
+            background: linear-gradient(transparent, #fff8f8);
+            pointer-events: none;
+        }
+
+        .notice-item:not(.unread) .notice-details::after {
+            background: linear-gradient(transparent, var(--blanco));
         }
 
         .notice-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.85rem;
-            color: var(--color-acento);
-            opacity: 0.7;
+            gap: 12px;
+            font-size: .82rem;
+            color: var(--acento);
+            flex-wrap: wrap;
         }
 
         .notice-date {
             display: flex;
             align-items: center;
             gap: 6px;
+            opacity: .65;
         }
 
-        .notice-actions {
+        .notice-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .btn-archive {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(50,52,75,.25);
+            background: transparent;
+            color: var(--acento);
+            padding: 7px 14px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: .82rem;
+            font-weight: 600;
+            font-family: 'Poppins', sans-serif;
+            transition: background .2s, border-color .2s;
+        }
+        .btn-archive:hover { background: rgba(50,52,75,.08); border-color: var(--acento); }
+
+        /* Sección de anuncios archivados */
+        .archived-section {
+            margin-top: 24px;
+        }
+
+        .archived-toggle {
             display: flex;
+            align-items: center;
             gap: 10px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            font-size: .88rem;
+            font-weight: 600;
+            color: var(--acento);
+            opacity: .55;
+            padding: 8px 0;
+            transition: opacity .2s;
+        }
+        .archived-toggle:hover { opacity: .9; }
+        .archived-toggle i { transition: transform .25s; }
+        .archived-toggle.open i.chevron { transform: rotate(180deg); }
+
+        .archived-list {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .archived-list.open { display: flex; }
+
+        .notice-item.archived {
+            opacity: .55;
+            border-left-color: #aaa;
+            background: #fafafa;
+        }
+        .notice-item.archived:hover { opacity: .85; transform: none; }
+
+        .btn-view-notice,
+        .btn-mark-read {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            padding: 7px 16px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: .82rem;
+            font-weight: 600;
+            font-family: 'Poppins', sans-serif;
+            transition: background .25s, transform .15s;
         }
 
         .btn-view-notice {
-            background-color: var(--color-primario);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 600;
-            transition: background-color 0.3s ease;
+            background: var(--verde);
+            color: var(--blanco);
         }
-
-        .btn-view-notice:hover {
-            background-color: var(--color-secundario);
-        }
+        .btn-view-notice:hover { background: var(--verde-dark); transform: translateY(-1px); }
 
         .btn-mark-read {
-            background-color: var(--color-acento);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 600;
-            transition: background-color 0.3s ease;
+            background: var(--acento);
+            color: var(--blanco);
         }
-
-        .btn-mark-read:hover {
-            background-color: #1a1c2b;
-        }
+        .btn-mark-read:hover { background: #1a1c2b; transform: translateY(-1px); }
+        .btn-mark-read:disabled { opacity: .5; cursor: default; transform: none; }
 
         .no-notices {
             text-align: center;
-            padding: 40px 20px;
-            color: var(--color-acento);
-            opacity: 0.7;
+            padding: 48px 20px;
+            color: var(--acento);
+            opacity: .6;
         }
+        .no-notices i { font-size: 3rem; display: block; margin-bottom: 12px; }
 
-        .no-notices i {
-            font-size: 3rem;
-            margin-bottom: 12px;
-            opacity: 0.5;
+        /* =====================================================
+           EMPTY STATE (sin estudiantes)
+        ===================================================== */
+        .no-students {
+            text-align: center;
+            padding: 80px 24px;
+            color: var(--acento);
         }
+        .no-students i { font-size: 4rem; opacity: .35; display: block; margin-bottom: 16px; }
+        .no-students h3 { font-size: 1.3rem; margin-bottom: 8px; }
+        .no-students p  { opacity: .65; font-size: .95rem; }
 
-        /* Modal para ver detalles de notificación */
-        .modal-notice {
+        /* =====================================================
+           MODAL
+        ===================================================== */
+        .modal-overlay {
             display: none;
             position: fixed;
-            z-index: 100;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.3s ease;
+            inset: 0;
+            background: rgba(0,0,0,.45);
+            z-index: 200;
+            animation: fadeIn .25s ease;
         }
 
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-            to {
-                opacity: 1;
-            }
-        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        .modal-content {
-            background-color: white;
-            margin: 5% auto;
-            padding: 30px;
-            border-radius: 12px;
+        .modal-box {
+            background: var(--blanco);
+            margin: 6vh auto;
+            padding: 32px;
+            border-radius: var(--radius);
             width: 90%;
-            max-width: 600px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            animation: slideDown 0.3s ease;
+            max-width: 580px;
+            box-shadow: 0 16px 48px rgba(0,0,0,.28);
+            animation: slideUp .28s ease;
         }
 
-        @keyframes slideDown {
-            from {
-                transform: translateY(-50px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
+        @keyframes slideUp {
+            from { transform: translateY(40px); opacity: 0; }
+            to   { transform: translateY(0);    opacity: 1; }
         }
 
         .modal-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
+            gap: 16px;
+            border-bottom: 2px solid var(--verde);
+            padding-bottom: 16px;
             margin-bottom: 20px;
-            border-bottom: 2px solid var(--color-primario);
-            padding-bottom: 15px;
         }
 
         .modal-header h2 {
-            margin: 0;
-            color: var(--color-acento);
-            font-size: 1.5rem;
+            font-size: 1.2rem;
+            color: var(--acento);
+            line-height: 1.4;
         }
 
         .close-modal {
-            font-size: 2rem;
-            font-weight: bold;
-            color: var(--color-acento);
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--acento);
             cursor: pointer;
             background: none;
             border: none;
-            padding: 0;
-            width: 30px;
-            height: 30px;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 50%;
-            transition: background-color 0.3s ease;
+            transition: background .2s;
+            flex-shrink: 0;
         }
-
-        .close-modal:hover {
-            background-color: #f0f0f0;
-        }
+        .close-modal:hover { background: #f0f0f0; }
 
         .modal-body {
-            color: var(--color-acento);
+            color: var(--acento);
             line-height: 1.8;
+            font-size: .95rem;
             margin-bottom: 20px;
+            white-space: pre-wrap;
         }
 
         .modal-meta {
-            background-color: var(--blanco-suave);
-            padding: 15px;
-            border-radius: 8px;
+            background: var(--fondo-card);
+            padding: 14px 16px;
+            border-radius: var(--radius-sm);
             margin-bottom: 20px;
-            font-size: 0.9rem;
+            font-size: .88rem;
         }
 
         .modal-meta-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
+            gap: 12px;
+            margin-bottom: 6px;
         }
+        .modal-meta-row:last-child { margin-bottom: 0; }
 
-        .modal-meta-row:last-child {
-            margin-bottom: 0;
-        }
-
-        .modal-actions {
+        .modal-footer {
             display: flex;
-            gap: 10px;
             justify-content: flex-end;
         }
 
-        @media (max-width: 768px) {
-
-            /* CONTENEDOR GENERAL */
-
-            .student-info-section {
-                width: 100%;
-
-                padding: 24px 16px;
-                box-sizing: border-box;
-            }
-
-            /* CARD */
-
-            .student-info-box {
-                width: 100%;
-
-                padding: 28px 24px;
-
-                border-radius: 18px;
-
-                box-sizing: border-box;
-            }
-
-            /* TITULO */
-
-            .student-info-box h3 {
-                font-size: 1.5rem;
-
-                text-align: center;
-
-                margin-bottom: 30px;
-            }
-
-            /* GRID MOBILE */
-
-            .info-display-grid {
-                display: flex;
-                flex-direction: column;
-                gap: 22px;
-            }
-
-            /* CADA FILA */
-
-            .info-row {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-            }
-
-            /* LABEL */
-
-            .info-label {
-                font-size: 1rem;
-                font-weight: 700;
-
-                color: var(--color-acento);
-            }
-
-            /* VALOR */
-
-            .info-value {
-                font-size: 0.95rem;
-
-                padding-left: 0;
-
-                word-break: break-word;
-
-                line-height: 1.5;
-            }
-
-        }
-
-        /* =========================================================
-   MOBILE RESPONSIVE
-   NO AFECTA DESKTOP
-========================================================= */
-        .mobile-grades-list {
+        /* =====================================================
+           TOAST
+        ===================================================== */
+        #toast {
+            position: fixed;
+            bottom: 28px;
+            right: 28px;
+            background: var(--acento);
+            color: var(--blanco);
+            padding: 13px 22px;
+            border-radius: var(--radius-sm);
+            font-size: .9rem;
+            font-weight: 600;
+            box-shadow: var(--sombra-lg);
+            z-index: 300;
             display: none;
+            align-items: center;
+            gap: 10px;
+            animation: fadeIn .3s ease;
         }
 
+        #toast.show { display: flex; }
+        #toast.success { background: var(--verde-dark); }
+        #toast.error   { background: var(--rojo); }
+
+        /* =====================================================
+           FOOTER
+        ===================================================== */
+        .site-footer {
+            width: 100%;
+            background: var(--acento);
+            color: rgba(255,255,255,.8);
+            text-align: center;
+            padding: 24px 16px;
+            font-size: .85rem;
+            line-height: 1.6;
+        }
+
+        .footer-line {
+            width: 60px;
+            height: 4px;
+            background: var(--verde);
+            border-radius: 4px;
+            margin: 10px auto 0;
+        }
+
+        /* =====================================================
+           MOBILE
+        ===================================================== */
         @media (max-width: 768px) {
+            .page-content { padding: 0 16px 48px; gap: 36px; }
 
-            /* =====================================================
-       HERO SECTION
-    ===================================================== */
+            .student-info-section { padding-top: 32px; }
+            .student-info-box { padding: 24px 20px; }
 
+            .section-title { font-size: .92rem; }
 
-            .grades-table-wrapper {
+            .info-grid {
+                grid-template-columns: 1fr;
+                row-gap: 14px;
+            }
+            .info-label { font-size: .9rem; }
+            .info-value { font-size: .88rem; padding-left: 0; }
+
+            /* Ocultar tabla, mostrar cards */
+            .grades-table-wrapper { display: none; }
+
+            /* --- Toggle colapsable de sección de calificaciones --- */
+            .grades-toggle-btn {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                background: none;
+                border: none;
+                cursor: pointer;
+                font-family: 'Poppins', sans-serif;
+                font-size: .82rem;
+                font-weight: 600;
+                color: var(--acento);
+                opacity: .6;
+                padding: 4px 0;
+                transition: opacity .2s;
+            }
+            .grades-toggle-btn:hover { opacity: 1; }
+            .grades-toggle-btn i.chevron { transition: transform .25s; }
+            .grades-toggle-btn.open i.chevron { transform: rotate(180deg); }
+
+            /* El cuerpo colapsable: oculto por defecto en móvil */
+            .grades-collapsible {
                 display: none;
+            }
+            .grades-collapsible.open {
+                display: block;
             }
 
             .mobile-grades-list {
                 display: flex;
-            }
-
-            .hero-section {
-                width: 100%;
-                min-height: 100vh;
-                position: relative;
-                display: flex;
                 flex-direction: column;
-                justify-content: space-between;
-
-                background:
-                    linear-gradient(rgba(255, 255, 255, 0.55),
-                        rgba(255, 255, 255, 0.55)),
-                    url('assets/images/pexels-pixabay-2166.jpg');
-
-                background-size: cover;
-                background-position: center;
-                overflow: hidden;
+                gap: 14px;
+                margin-top: 12px;
             }
 
-            /* LOGO */
-
-            .logo-container {
-                padding: 24px 20px 0 20px;
-                z-index: 2;
-            }
-
-            .school-logo {
-                width: clamp(120px, 35vw, 170px);
-                height: auto;
-            }
-
-            /* USER CARD */
-
-            .user-card {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-
-                width: 145px;
-
-                background-color: var(--color-primario);
-
-                border-radius: 0 0 22px 22px;
-
-                padding: 14px 10px;
-
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-
-                color: white;
-
-                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-
-                z-index: 3;
-            }
-
-            .user-carousel {
-                width: 100%;
-
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-
-                margin-bottom: 8px;
-            }
-
-            .nav-arrow {
-                color: rgba(255, 255, 255, 0.75);
-                font-size: 18px;
-                text-decoration: none;
-                transition: 0.2s ease;
-            }
-
-            .nav-arrow:hover {
-                color: white;
-                transform: scale(1.1);
-            }
-
-            .user-icon {
-                font-size: 42px;
-                color: white;
-            }
-
-            .user-name {
-                font-size: 11px;
-                font-weight: 700;
-                text-align: center;
-                line-height: 1.3;
-            }
-
-            .logout-link {
-                margin-top: 6px;
-
-                font-size: 10px;
-                color: var(--blanco-suave);
-
-                text-decoration: underline;
-            }
-
-            /* WELCOME BAR */
-
-            .welcome-bar {
-                width: 100%;
-
-                background-color: var(--color-primario);
-
-                padding: 22px 24px 28px 24px;
-
-                color: white;
-
-                text-align: center;
-
-                z-index: 2;
-            }
-
-            .welcome-bar h1 {
-                margin: 0;
-
-                font-size: clamp(24px, 7vw, 34px);
-
-                font-weight: 800;
-
-                letter-spacing: 1px;
-            }
-
-            .welcome-bar p {
-                margin-top: 8px;
-
-                font-size: clamp(13px, 3.5vw, 16px);
-
-                line-height: 1.5;
-
-                opacity: 0.95;
-            }
-
-            /* =====================================================
-       STUDENT INFO
-    ===================================================== */
-
-            .student-info-section {
-                width: 100%;
-
-                padding: 24px 16px;
-                box-sizing: border-box;
-            }
-
-            .student-info-box {
-                width: 100%;
-
-                padding: 28px 24px;
-
-                border-radius: 18px;
-
-                box-sizing: border-box;
-            }
-
-            .student-info-box h3 {
-                font-size: 1.5rem;
-
-                text-align: center;
-
-                margin-bottom: 30px;
-            }
-
-            .info-display-grid {
-                display: flex;
-                flex-direction: column;
-                gap: 22px;
-            }
-
-            .info-row {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-            }
-
-            .info-label {
-                font-size: 1rem;
-                font-weight: 700;
-
-                color: var(--color-acento);
-            }
-
-            .info-value {
-                font-size: 0.95rem;
-
-                padding-left: 0;
-
-                word-break: break-word;
-
-                line-height: 1.5;
-            }
-
-            /* =====================================================
-       CALIFICACIONES MOBILE
-    ===================================================== */
-
-            /* OCULTAR TABLA DESKTOP */
-
-            .grades-table-wrapper {
-                display: none;
-            }
-
-            .grades-section {
-                width: 100%;
-
-                padding: 0 16px 24px 16px;
-
-                box-sizing: border-box;
-            }
-
-            .grades-section h3 {
-                text-align: center;
-
-                font-size: 1.5rem;
-
-                padding-left: 0;
-            }
-
-            .grades-section h3::before {
-                display: none;
-            }
-
-            /* LISTA MOBILE */
-
-            .mobile-grades-list {
-                display: flex;
-                flex-direction: column;
-
-                gap: 18px;
-
-                margin-top: 20px;
-            }
-
-            /* CARD */
-
-            .mobile-grade-card {
-                display: flex;
-                flex-direction: column;
-
-                gap: 10px;
-            }
-
-            /* MATERIA */
+            .mobile-grade-card { display: flex; flex-direction: column; gap: 6px; }
 
             .mobile-subject {
-                background-color: var(--color-primario);
-
-                color: white;
-
-                padding: 16px;
-
-                border-radius: 10px;
-
-                text-align: center;
-
+                background: var(--verde);
+                color: var(--blanco);
+                padding: 14px 18px;
+                border-radius: 12px 12px 0 0;
                 font-weight: 700;
-
-                font-size: 1rem;
-
-                box-shadow: var(--sombra-suave);
+                font-size: .95rem;
             }
 
-            /* CALIFICACIONES */
-
             .mobile-grades-row {
-                background-color: var(--color-acento);
-
-                border-radius: 10px;
-
-                padding: 14px 10px;
-
+                background: var(--acento);
+                border-radius: 0 0 12px 12px;
+                padding: 12px 10px;
                 display: flex;
                 justify-content: space-around;
                 align-items: center;
-
-                color: white;
-
-                font-weight: 700;
-
-                font-size: 0.85rem;
-
-                box-shadow: var(--sombra-suave);
+                color: var(--blanco);
+                font-weight: 600;
+                font-size: .85rem;
+                gap: 4px;
             }
 
-            /* BOTONES */
-
-            .action-buttons {
-                margin-top: 30px;
-
-                padding: 0 16px 30px 16px;
-
+            .mobile-grade-unit {
                 display: flex;
-                justify-content: space-between;
-                align-items: center;
-
-                gap: 20px;
-            }
-
-            .btn-primary {
-                padding: 12px 18px;
-
-                font-size: 0.8rem;
-
-                border-radius: 8px;
-            }
-
-            .promedio-container {
-                font-size: 1rem;
-            }
-
-            /* =====================================================
-       FOOTER
-    ===================================================== */
-
-            .footer {
-                padding: 24px 16px;
-
-                font-size: 0.85rem;
-
-                line-height: 1.6;
-            }
-
-            /* =====================================================
-       NOTIFICACIONES MOBILE
-    ===================================================== */
-
-            .notices-section {
-                padding: 0 16px;
-                margin-top: 30px;
-            }
-
-            .notices-section h3 {
-                font-size: 1.3rem;
-                padding-left: 35px;
-            }
-
-            .notice-item {
-                padding: 16px;
-            }
-
-            .notice-title {
-                font-size: 1rem;
-            }
-
-            .notice-details {
-                font-size: 0.9rem;
-            }
-
-            .notice-actions {
                 flex-direction: column;
-                gap: 8px;
+                align-items: center;
+                gap: 2px;
+                flex: 1;
             }
 
-            .btn-view-notice,
-            .btn-mark-read {
-                width: 100%;
-                text-align: center;
+            .mobile-grade-unit span:first-child {
+                font-size: .65rem;
+                opacity: .6;
+                text-transform: uppercase;
             }
 
-            .modal-content {
-                width: 95%;
-                padding: 20px;
-                margin: 20% auto;
-            }
+            .action-bar { justify-content: center; }
 
-            .modal-header h2 {
-                font-size: 1.2rem;
-            }
+            .notice-header { flex-direction: column; gap: 8px; }
+            .notice-status { align-self: flex-start; }
+
+            .btn-view-notice, .btn-mark-read, .btn-archive { width: 100%; justify-content: center; }
+
+            .modal-box { padding: 22px 18px; margin: 15vh auto; }
+            .modal-header h2 { font-size: 1.05rem; }
+
+            #toast { bottom: 16px; right: 16px; left: 16px; }
+        }
     </style>
 </head>
 
 <body>
 
-    <!-- CABECERA -->
+    <!-- ===================== HERO ===================== -->
     <section class="hero-section">
         <div class="logo-container">
-            <img src="assets/images/logo_no_bg.png" alt="Logo IPT" class="school-logo">
+            <img src="assets/images/logo_no_bg.png" alt="Logo Instituto Panamericano" class="school-logo">
         </div>
 
         <div class="user-card">
             <div class="user-carousel">
-                <a href="#" class="nav-arrow" id="prevStudent">
+                <a href="#" class="nav-arrow <?php echo ($total_students <= 1) ? 'disabled' : ''; ?>"
+                   id="prevStudent" aria-label="Estudiante anterior">
                     <i class="fa-solid fa-angle-left"></i>
                 </a>
-
-                <div class="user-icon-container">
-                    <i class="fa-solid fa-circle-user user-icon"></i>
-                </div>
-
-                <a href="#" class="nav-arrow" id="nextStudent">
+                <i class="fa-solid fa-circle-user user-icon" aria-hidden="true"></i>
+                <a href="#" class="nav-arrow <?php echo ($total_students <= 1) ? 'disabled' : ''; ?>"
+                   id="nextStudent" aria-label="Siguiente estudiante">
                     <i class="fa-solid fa-angle-right"></i>
                 </a>
             </div>
 
-            <span class="user-name"><?php echo htmlentities($selected_student->StudentName); ?></span>
-            <a href="logout.php" class="logout-link">cerrar sesión</a>
+            <?php if ($selected_student): ?>
+                <span class="user-name"><?php echo htmlentities($selected_student->StudentName); ?></span>
+            <?php else: ?>
+                <span class="user-name">Sin estudiante</span>
+            <?php endif; ?>
+
+            <?php if ($total_students > 1): ?>
+                <span class="student-counter"><?php echo ($current_student_index + 1) . ' / ' . $total_students; ?></span>
+            <?php endif; ?>
+
+            <a href="logout.php" class="logout-link">Cerrar sesión</a>
         </div>
 
         <div class="welcome-bar">
             <h1>BIENVENIDO</h1>
-            <p>aquí podrás revisar las calificaciones de cada unidad</p>
+            <p>Aquí podrás revisar las calificaciones y notificaciones de tu hijo/a</p>
         </div>
     </section>
 
-
-    <!-- MAIN CONTENT -->
-    <!-- CONTENIDO PRINCIPAL -->
+    <!-- ===================== CONTENIDO PRINCIPAL ===================== -->
     <?php if ($selected_student): ?>
-        <div class="content-section">
 
-            <!-- INFO BOX DEL ESTUDIANTE -->
+        <div class="page-content">
+
+            <!-- DATOS DEL ALUMNO -->
             <div class="student-info-section">
                 <div class="student-info-box">
-                    <h3>DATOS DEL ALUMNO</h3>
+                    <h3 class="section-title">Datos del Alumno</h3>
+                    <div class="info-grid">
+                        <span class="info-label">Nombre</span>
+                        <span class="info-value"><?php echo htmlentities($selected_student->StudentName); ?></span>
 
-                    <div class="info-display-grid">
-                        <div class="info-row">
-                            <span class="info-label">Nombre:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->StudentName); ?></span>
-                        </div>
+                        <span class="info-label">Grado</span>
+                        <span class="info-value"><?php echo htmlentities($selected_student->ClassName); ?></span>
 
-                        <div class="info-row">
-                            <span class="info-label">Grado:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->ClassName); ?></span>
-                        </div>
+                        <span class="info-label">Grupo</span>
+                        <span class="info-value"><?php echo htmlentities($selected_student->Section); ?></span>
 
-                        <div class="info-row">
-                            <span class="info-label">Grupo:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->Section); ?></span>
-                        </div>
-
-                        <div class="info-row">
-                            <span class="info-label">Correo:</span>
-                            <span class="info-value"><?php echo htmlentities($selected_student->StudentEmail); ?></span>
-                        </div>
+                        <span class="info-label">Correo</span>
+                        <span class="info-value"><?php echo htmlentities($selected_student->StudentEmail); ?></span>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- SECCIÓN DE NOTIFICACIONES / ANUNCIOS -->
-        <div class="notices-section">
-            <h3>
-                <i class="fa-solid fa-bell"></i>
-                Notificaciones y Anuncios
-                <?php if ($pending_notices_count > 0): ?>
-                    <span class="notices-badge"><?php echo $pending_notices_count; ?></span>
-                <?php endif; ?>
-            </h3>
-
-            <?php if (count($student_notices) > 0): ?>
-                <div class="notices-container">
-                    <?php foreach ($student_notices as $notice): ?>
-                        <div class="notice-item <?php echo ($notice->is_viewed == 0) ? 'unread' : ''; ?>">
-                            <div class="notice-header">
-                                <h4 class="notice-title"><?php echo htmlentities($notice->noticeTitle); ?></h4>
-                                <span class="notice-status <?php echo ($notice->is_viewed == 0) ? 'pending' : 'viewed'; ?>">
-                                    <?php echo ($notice->is_viewed == 0) ? 'Pendiente' : 'Leído'; ?>
-                                </span>
-                            </div>
-
-                            <div class="notice-details">
-                                <?php echo htmlentities(substr($notice->noticeDetails, 0, 120)); ?>
-                                <?php if (strlen($notice->noticeDetails) > 120): ?>...<?php endif; ?>
-                            </div>
-
-                            <div class="notice-footer">
-                                <div class="notice-date">
-                                    <i class="fa-solid fa-calendar-days"></i>
-                                    <?php echo date('d/m/Y H:i', strtotime($notice->postingDate)); ?>
-                                </div>
-                                <div class="notice-actions">
-                                    <button class="btn-view-notice" onclick="viewNoticeDetails(<?php echo $notice->notice_id; ?>, '<?php echo htmlentities($notice->noticeTitle); ?>', '<?php echo htmlentities(str_replace("'", "\\'", $notice->noticeDetails)); ?>', '<?php echo $notice->postingDate; ?>')">
-                                        <i class="fa-solid fa-eye"></i> Ver
-                                    </button>
-                                    <?php if ($notice->is_viewed == 0): ?>
-                                        <button class="btn-mark-read" onclick="markNoticeAsRead(<?php echo $notice->notice_student_id; ?>, this)">
-                                            <i class="fa-solid fa-check"></i> Marcar como leído
-                                        </button>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
+            <!-- NOTIFICACIONES -->
+            <div class="notices-section">
+                <div class="notices-header">
+                    <h3 class="section-title">
+                        <i class="fa-solid fa-bell notices-icon" aria-hidden="true"></i>
+                        Notificaciones y Anuncios
+                    </h3>
+                    <?php if ($pending_notices_count > 0): ?>
+                        <span class="notices-badge" aria-label="<?php echo $pending_notices_count; ?> notificaciones pendientes">
+                            <?php echo $pending_notices_count; ?>
+                        </span>
+                    <?php endif; ?>
                 </div>
-            <?php else: ?>
-                <div class="no-notices">
-                    <div>
-                        <i class="fa-solid fa-inbox"></i>
-                        <h4>No hay notificaciones</h4>
+
+                <?php if (count($student_notices) > 0): ?>
+                    <div class="notices-container" id="noticesActive">
+                        <?php foreach ($student_notices as $notice): ?>
+                            <div class="notice-item <?php echo ($notice->is_viewed == 0) ? 'unread' : ''; ?>"
+                                 id="notice-item-<?php echo $notice->notice_student_id; ?>"
+                                 data-notice-id="<?php echo $notice->notice_id; ?>"
+                                 data-title="<?php echo htmlentities($notice->noticeTitle, ENT_QUOTES); ?>"
+                                 data-details="<?php echo htmlentities($notice->noticeDetails, ENT_QUOTES); ?>"
+                                 data-date="<?php echo htmlentities($notice->postingDate, ENT_QUOTES); ?>">
+                                <div class="notice-header">
+                                    <h4 class="notice-title"><?php echo htmlentities($notice->noticeTitle); ?></h4>
+                                    <span class="notice-status <?php echo ($notice->is_viewed == 0) ? 'pending' : 'viewed'; ?>">
+                                        <?php echo ($notice->is_viewed == 0) ? 'Pendiente' : 'Leído'; ?>
+                                    </span>
+                                </div>
+
+                                <div class="notice-details">
+                                    <?php echo htmlentities(substr($notice->noticeDetails, 0, 150)); ?>
+                                    <?php if (strlen($notice->noticeDetails) > 150): ?>…<?php endif; ?>
+                                </div>
+
+                                <div class="notice-footer">
+                                    <div class="notice-date">
+                                        <i class="fa-solid fa-calendar-days" aria-hidden="true"></i>
+                                        <?php echo date('d/m/Y H:i', strtotime($notice->postingDate)); ?>
+                                    </div>
+                                    <div class="notice-actions">
+                                        <button class="btn-view-notice"
+                                                aria-label="Ver detalle: <?php echo htmlentities($notice->noticeTitle, ENT_QUOTES); ?>"
+                                                data-action="view-notice">
+                                            <i class="fa-solid fa-eye" aria-hidden="true"></i> Ver
+                                        </button>
+                                        <?php if ($notice->is_viewed == 0): ?>
+                                            <button class="btn-mark-read"
+                                                    aria-label="Marcar como leída: <?php echo htmlentities($notice->noticeTitle, ENT_QUOTES); ?>"
+                                                    data-action="mark-read"
+                                                    data-nsi="<?php echo $notice->notice_student_id; ?>">
+                                                <i class="fa-solid fa-check" aria-hidden="true"></i> Marcar leído
+                                            </button>
+                                        <?php endif; ?>
+                                        <button class="btn-archive"
+                                                aria-label="Archivar: <?php echo htmlentities($notice->noticeTitle, ENT_QUOTES); ?>"
+                                                data-action="archive">
+                                            <i class="fa-solid fa-box-archive" aria-hidden="true"></i> Archivar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <!-- Sección de archivados -->
+                    <div class="archived-section" id="archivedSection" style="display:none;">
+                        <button class="archived-toggle" id="archivedToggle" aria-expanded="false">
+                            <i class="fa-solid fa-box-archive" aria-hidden="true"></i>
+                            <span id="archivedLabel">Anteriores (0)</span>
+                            <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                        </button>
+                        <div class="archived-list" id="archivedList" role="list"></div>
+                    </div>
+
+                <?php else: ?>
+                    <div class="no-notices">
+                        <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                        <h4>Sin notificaciones</h4>
                         <p>No tienes notificaciones en este momento.</p>
                     </div>
-                </div>
-            <?php endif; ?>
-        </div>
+                <?php endif; ?>
+            </div>
 
-        <!-- MODAL PARA VER DETALLES DE NOTIFICACIÓN -->
-        <div id="noticeModal" class="modal-notice">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="modalNoticeTitle"></h2>
-                    <button class="close-modal" onclick="closeNoticeModal()">&times;</button>
+            <!-- CALIFICACIONES — ESPAÑOL -->
+            <?php
+            $total_spanish = 0; $count_spanish = 0;
+            foreach ($student_grades_spanish as $g) {
+                $avg = calcAvg($g); $total_spanish += $avg; $count_spanish++;
+            }
+            $prom_spanish = $count_spanish > 0 ? number_format($total_spanish / $count_spanish, 1) : null;
+            ?>
+            <div class="grades-section">
+                <div class="grades-header">
+                    <h3 class="section-title">Calificaciones — Español</h3>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <?php if ($prom_spanish !== null): ?>
+                            <span class="promedio-badge">Promedio: <?php echo $prom_spanish; ?></span>
+                        <?php endif; ?>
+                        <?php if (count($student_grades_spanish) > 0): ?>
+                            <button class="grades-toggle-btn"
+                                    data-target="grades-collapsible-es"
+                                    aria-expanded="false"
+                                    aria-controls="grades-collapsible-es">
+                                <span class="toggle-label">Ver materias</span>
+                                <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                            </button>
+                        <?php endif; ?>
+                    </div>
                 </div>
-                <div class="modal-body" id="modalNoticeBody"></div>
-                <div class="modal-meta" id="modalNoticeMeta"></div>
-                <div class="modal-actions">
-                    <button class="btn-primary" onclick="closeNoticeModal()" style="background-color: var(--color-acento);">
-                        Cerrar
-                    </button>
+
+                <?php if (count($student_grades_spanish) > 0): ?>
+
+                    <div class="grades-collapsible" id="grades-collapsible-es">
+
+                        <!-- Tabla Desktop -->
+                        <div class="grades-table-wrapper">
+                            <table class="grades-table" aria-label="Calificaciones Español">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Asignatura</th>
+                                        <th scope="col">U1</th>
+                                        <th scope="col">U2</th>
+                                        <th scope="col">U3</th>
+                                        <th scope="col">U4</th>
+                                        <th scope="col">U5</th>
+                                        <th scope="col">Prom.</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($student_grades_spanish as $grade):
+                                        $avg = calcAvg($grade);
+                                    ?>
+                                        <tr class="grade-item-row">
+                                            <td><?php echo htmlentities($grade->SubjectName); ?></td>
+                                            <td><?php echo $grade->term1 !== null ? $grade->term1 : '—'; ?></td>
+                                            <td><?php echo $grade->term2 !== null ? $grade->term2 : '—'; ?></td>
+                                            <td><?php echo $grade->term3 !== null ? $grade->term3 : '—'; ?></td>
+                                            <td><?php echo $grade->term4 !== null ? $grade->term4 : '—'; ?></td>
+                                            <td><?php echo $grade->term5 !== null ? $grade->term5 : '—'; ?></td>
+                                            <td style="font-weight:800;"><?php echo number_format($avg, 1); ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Cards Mobile -->
+                        <div class="mobile-grades-list" aria-label="Calificaciones Español (móvil)">
+                            <?php foreach ($student_grades_spanish as $grade): ?>
+                                <div class="mobile-grade-card">
+                                    <div class="mobile-subject"><?php echo htmlentities($grade->SubjectName); ?></div>
+                                    <div class="mobile-grades-row">
+                                        <?php for ($u = 1; $u <= 5; $u++): $key = "term$u"; ?>
+                                            <div class="mobile-grade-unit">
+                                                <span>U<?php echo $u; ?></span>
+                                                <span><?php echo $grade->$key !== null ? $grade->$key : '—'; ?></span>
+                                            </div>
+                                        <?php endfor; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                    </div><!-- /.grades-collapsible -->
+
+                <?php else: ?>
+                    <p style="text-align:center; opacity:.65; padding: 24px 0;">No hay calificaciones en Español registradas aún.</p>
+                <?php endif; ?>
+            </div>
+
+            <!-- CALIFICACIONES — INGLÉS -->
+            <?php
+            $total_english = 0; $count_english = 0;
+            foreach ($student_grades_english as $g) {
+                $avg = calcAvg($g); $total_english += $avg; $count_english++;
+            }
+            $prom_english = $count_english > 0 ? number_format($total_english / $count_english, 1) : null;
+            ?>
+            <div class="grades-section">
+                <div class="grades-header">
+                    <h3 class="section-title">Calificaciones — Inglés</h3>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <?php if ($prom_english !== null): ?>
+                            <span class="promedio-badge">Promedio: <?php echo $prom_english; ?></span>
+                        <?php endif; ?>
+                        <?php if (count($student_grades_english) > 0): ?>
+                            <button class="grades-toggle-btn"
+                                    data-target="grades-collapsible-en"
+                                    aria-expanded="false"
+                                    aria-controls="grades-collapsible-en">
+                                Ver materias
+                                <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                            </button>
+                        <?php endif; ?>
+                    </div>
                 </div>
+
+                <?php if (count($student_grades_english) > 0): ?>
+
+                    <div class="grades-collapsible" id="grades-collapsible-en">
+
+                        <!-- Tabla Desktop -->
+                        <div class="grades-table-wrapper">
+                            <table class="grades-table" aria-label="Calificaciones Inglés">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Asignatura</th>
+                                        <th scope="col">U1</th>
+                                        <th scope="col">U2</th>
+                                        <th scope="col">U3</th>
+                                        <th scope="col">U4</th>
+                                        <th scope="col">U5</th>
+                                        <th scope="col">Prom.</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($student_grades_english as $grade):
+                                        $avg = calcAvg($grade);
+                                    ?>
+                                        <tr class="grade-item-row">
+                                            <td><?php echo htmlentities($grade->SubjectName); ?></td>
+                                            <td><?php echo $grade->term1 !== null ? $grade->term1 : '—'; ?></td>
+                                            <td><?php echo $grade->term2 !== null ? $grade->term2 : '—'; ?></td>
+                                            <td><?php echo $grade->term3 !== null ? $grade->term3 : '—'; ?></td>
+                                            <td><?php echo $grade->term4 !== null ? $grade->term4 : '—'; ?></td>
+                                            <td><?php echo $grade->term5 !== null ? $grade->term5 : '—'; ?></td>
+                                            <td style="font-weight:800;"><?php echo number_format($avg, 1); ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Cards Mobile -->
+                        <div class="mobile-grades-list" aria-label="Calificaciones Inglés (móvil)">
+                            <?php foreach ($student_grades_english as $grade): ?>
+                                <div class="mobile-grade-card">
+                                    <div class="mobile-subject"><?php echo htmlentities($grade->SubjectName); ?></div>
+                                    <div class="mobile-grades-row">
+                                        <?php for ($u = 1; $u <= 5; $u++): $key = "term$u"; ?>
+                                            <div class="mobile-grade-unit">
+                                                <span>U<?php echo $u; ?></span>
+                                                <span><?php echo $grade->$key !== null ? $grade->$key : '—'; ?></span>
+                                            </div>
+                                        <?php endfor; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                    </div><!-- /.grades-collapsible -->
+
+                <?php else: ?>
+                    <p style="text-align:center; opacity:.65; padding: 24px 0;">No hay calificaciones en Inglés registradas aún.</p>
+                <?php endif; ?>
+            </div>
+
+            <!-- BOTÓN ÚNICO DE BOLETA COMPLETA -->
+            <?php if (count($student_grades_spanish) > 0 || count($student_grades_english) > 0): ?>
+            <div class="action-bar" style="justify-content:center; padding-bottom: 8px;">
+                <a href="generate-student-pdf.php?student_id=<?php echo $selected_student_id; ?>"
+                   target="_blank" class="btn-pdf btn-pdf-large" aria-label="Descargar boleta completa en PDF">
+                    <i class="fas fa-file-pdf" aria-hidden="true"></i> Descargar Boleta Completa
+                </a>
+            </div>
+            <?php endif; ?>
+
+        </div><!-- /.page-content -->
+
+    <?php else: ?>
+
+        <div class="page-content">
+            <div class="no-students">
+                <i class="fas fa-inbox" aria-hidden="true"></i>
+                <h3>Sin estudiantes asignados</h3>
+                <p>Contacta al administrador del sistema para obtener acceso a los registros de tus hijos.</p>
             </div>
         </div>
 
-        <!-- SECCIÓN DE CALIFICACIONES - ESPAÑOL -->
-        <div class="grades-section">
-            <h3>CALIFICACIÓN - ESPAÑOL</h3>
-
-            <?php if (count($student_grades_spanish) > 0): ?>
-                <!-- TABLA DESKTOP -->
-                <div class="grades-table-wrapper">
-
-                    <table class="grades-table">
-                        <thead class="unidades">
-                            <tr>
-                                <th>Asignatura</th>
-                                <th>
-                                    <div class="contenedor-unidades">1</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">2</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">3</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">4</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">5</div>
-                                </th>
-                                <th>PROM</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-
-                            <?php 
-                            $total_spanish = 0;
-                            $count_spanish = 0;
-                            foreach ($student_grades_spanish as $grade):
-
-                                $terms = array_filter([
-                                    $grade->term1,
-                                    $grade->term2,
-                                    $grade->term3
-                                ]);
-
-                                $avg = count($terms) > 0
-                                    ? array_sum($terms) / count($terms)
-                                    : 0;
-                                
-                                $total_spanish += $avg;
-                                $count_spanish++;
-                            ?>
-
-                                <tr class="grade-item-row">
-
-                                    <td>
-                                        <?php echo htmlentities($grade->SubjectName); ?>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term1 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term2 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term3 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term4 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term5 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td style="font-weight: 800;">
-                                        <div class="contenedor-unidades">
-                                            <?php echo number_format($avg, 1); ?>
-                                        </div>
-                                    </td>
-
-                                </tr>
-
-                            <?php endforeach; ?>
-
-                        </tbody>
-                    </table>
-
-                </div>
-
-                <!-- MOBILE CARDS -->
-                <div class="mobile-grades-list">
-
-                    <?php 
-                    $total_spanish = 0;
-                    $count_spanish = 0;
-                    foreach ($student_grades_spanish as $grade):
-
-                        $terms = array_filter([
-                            $grade->term1,
-                            $grade->term2,
-                            $grade->term3
-                        ]);
-
-                        $avg = count($terms) > 0
-                            ? array_sum($terms) / count($terms)
-                            : 0;
-                        
-                        $total_spanish += $avg;
-                        $count_spanish++;
-                    ?>
-
-                        <div class="mobile-grade-card">
-
-                            <div class="mobile-subject">
-                                <?php echo htmlentities($grade->SubjectName); ?>
-                            </div>
-
-                            <div class="mobile-grades-row">
-
-                                <span><?php echo $grade->term1 ?: '-'; ?></span>
-                                <span><?php echo $grade->term2 ?: '-'; ?></span>
-                                <span><?php echo $grade->term3 ?: '-'; ?></span>
-                                <span><?php echo $grade->term4 ?: '-'; ?></span>
-                                <span><?php echo $grade->term5 ?: '-'; ?></span>
-
-                            </div>
-
-                        </div>
-
-                    <?php endforeach; ?>
-
-                </div>
-                <div class="action-buttons-spanish">
-                    <div style="font-weight: 800" class="promedio-container">
-                        <p>Promedio Español: <?php echo $count_spanish > 0 ? number_format($total_spanish / $count_spanish, 1) : '0.0'; ?></p>
-                    </div>
-                </div>
-            <?php else: ?>
-                <p style="text-align: center; color: var(--color-acento);">No hay calificaciones en Español registradas aún.</p>
-            <?php endif; ?>
-        </div>
-
-        <!-- SECCIÓN DE CALIFICACIONES - INGLÉS -->
-        <div class="grades-section">
-            <h3>CALIFICACIÓN - INGLÉS</h3>
-
-            <?php if (count($student_grades_english) > 0): ?>
-                <!-- TABLA DESKTOP -->
-                <div class="grades-table-wrapper">
-
-                    <table class="grades-table">
-                        <thead class="unidades">
-                            <tr>
-                                <th>Asignatura</th>
-                                <th>
-                                    <div class="contenedor-unidades">1</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">2</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">3</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">4</div>
-                                </th>
-                                <th>
-                                    <div class="contenedor-unidades">5</div>
-                                </th>
-                                <th>PROM</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-
-                            <?php 
-                            $total_english = 0;
-                            $count_english = 0;
-                            foreach ($student_grades_english as $grade):
-
-                                $terms = array_filter([
-                                    $grade->term1,
-                                    $grade->term2,
-                                    $grade->term3
-                                ]);
-
-                                $avg = count($terms) > 0
-                                    ? array_sum($terms) / count($terms)
-                                    : 0;
-                                
-                                $total_english += $avg;
-                                $count_english++;
-                            ?>
-
-                                <tr class="grade-item-row">
-
-                                    <td>
-                                        <?php echo htmlentities($grade->SubjectName); ?>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term1 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term2 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term3 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term4 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td>
-                                        <div class="contenedor-unidades">
-                                            <?php echo $grade->term5 ?: '-'; ?>
-                                        </div>
-                                    </td>
-
-                                    <td style="font-weight: 800;">
-                                        <div class="contenedor-unidades">
-                                            <?php echo number_format($avg, 1); ?>
-                                        </div>
-                                    </td>
-
-                                </tr>
-
-                            <?php endforeach; ?>
-
-                        </tbody>
-                    </table>
-
-                </div>
-
-                <!-- MOBILE CARDS -->
-                <div class="mobile-grades-list">
-
-                    <?php 
-                    $total_english = 0;
-                    $count_english = 0;
-                    foreach ($student_grades_english as $grade):
-
-                        $terms = array_filter([
-                            $grade->term1,
-                            $grade->term2,
-                            $grade->term3
-                        ]);
-
-                        $avg = count($terms) > 0
-                            ? array_sum($terms) / count($terms)
-                            : 0;
-                        
-                        $total_english += $avg;
-                        $count_english++;
-                    ?>
-
-                        <div class="mobile-grade-card">
-
-                            <div class="mobile-subject">
-                                <?php echo htmlentities($grade->SubjectName); ?>
-                            </div>
-
-                            <div class="mobile-grades-row">
-
-                                <span><?php echo $grade->term1 ?: '-'; ?></span>
-                                <span><?php echo $grade->term2 ?: '-'; ?></span>
-                                <span><?php echo $grade->term3 ?: '-'; ?></span>
-                                <span><?php echo $grade->term4 ?: '-'; ?></span>
-                                <span><?php echo $grade->term5 ?: '-'; ?></span>
-
-                            </div>
-
-                        </div>
-
-                    <?php endforeach; ?>
-
-                </div>
-                <div class="action-buttons">
-                    <a href="generate-student-pdf.php?student_id=<?php echo $selected_student_id; ?>"
-                        target="_blank"
-                        class="btn-primary">
-                        <i class="fas fa-file-pdf"></i> Imprimir Boleta
-                    </a>
-                    <div style="font-weight: 800" class="promedio-container">
-                        <p>Promedio Inglés: <?php echo $count_english > 0 ? number_format($total_english / $count_english, 1) : '0.0'; ?></p>
-                    </div>
-                </div>
-            <?php else: ?>
-                <p style="text-align: center; color: var(--color-acento);">No hay calificaciones en Inglés registradas aún.</p>
-            <?php endif; ?>
-        </div>
-        </div>
-    <?php else: ?>
-        <div class="no-students">
-            <i class="fas fa-inbox"></i>
-            <h3>No hay estudiantes asignados</h3>
-            <p>Contacta al administrador del sistema para obtener acceso a los registros de tus hijos.</p>
-        </div>
     <?php endif; ?>
 
-    <!-- WRAPPER DE CONTENIDO (si es necesario cerrar algo) -->
+    <!-- MODAL DETALLES DE NOTIFICACIÓN -->
+    <div id="noticeModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalNoticeTitle">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 id="modalNoticeTitle"></h2>
+                <button class="close-modal" onclick="closeNoticeModal()" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="modal-body" id="modalNoticeBody"></div>
+            <div class="modal-meta" id="modalNoticeMeta"></div>
+            <div class="modal-footer">
+                <button class="btn-pdf" onclick="closeNoticeModal()" style="background:var(--acento);">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast" role="status" aria-live="polite">
+        <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+        <span id="toastMsg"></span>
     </div>
 
     <!-- FOOTER -->
-    <div class="footer">
+    <footer class="site-footer">
         <p>&copy; 2026 Instituto Panamericano de Tampico. Todos los derechos reservados.</p>
         <p><small>Portal de Tutores v1.0</small></p>
-        <div class="linea-verde"></div>
-    </div>
+        <div class="footer-line"></div>
+    </footer>
 
-    <!-- Script para la navegación del carrusel de estudiantes -->
     <script>
-        // Función para ver detalles de notificación
-        function viewNoticeDetails(noticeId, title, details, date) {
+    document.addEventListener('DOMContentLoaded', function () {
+
+        /* =============================================================
+           TOAST
+        ============================================================= */
+        function showToast(msg, type) {
+            var t = document.getElementById('toast');
+            var m = document.getElementById('toastMsg');
+            t.className = 'show ' + (type || 'success');
+            m.textContent = msg;
+            clearTimeout(t._timer);
+            t._timer = setTimeout(function () { t.className = ''; }, 3200);
+        }
+
+        /* =============================================================
+           MODAL NOTIFICACIONES
+        ============================================================= */
+        var modal = document.getElementById('noticeModal');
+
+        function openModal(title, details, date) {
             document.getElementById('modalNoticeTitle').textContent = title;
-            document.getElementById('modalNoticeBody').textContent = details;
-            
-            const formattedDate = new Date(date).toLocaleString('es-ES', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
+            document.getElementById('modalNoticeBody').textContent  = details;
+
+            var d   = new Date(date);
+            var fmt = d.toLocaleString('es-MX', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
             });
 
-            document.getElementById('modalNoticeMeta').innerHTML = `
-                <div class="modal-meta-row">
-                    <strong>Fecha de publicación:</strong>
-                    <span>${formattedDate}</span>
-                </div>
-            `;
+            document.getElementById('modalNoticeMeta').innerHTML =
+                '<div class="modal-meta-row">' +
+                    '<strong>Publicado:</strong><span>' + fmt + '</span>' +
+                '</div>';
 
-            document.getElementById('noticeModal').style.display = 'block';
+            modal.style.display = 'block';
         }
 
-        // Función para cerrar el modal
         function closeNoticeModal() {
-            document.getElementById('noticeModal').style.display = 'none';
+            modal.style.display = 'none';
         }
 
-        // Cerrar modal cuando se hace clic fuera de él
-        window.onclick = function(event) {
-            const modal = document.getElementById('noticeModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
+        // Exponer para el botón inline del modal
+        window.closeNoticeModal = closeNoticeModal;
 
-        // Función para marcar notificación como leída
-        function markNoticeAsRead(noticeStudentId, buttonElement) {
-            const xhr = new XMLHttpRequest();
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeNoticeModal();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeNoticeModal();
+        });
+
+        /* =============================================================
+           MARCAR COMO LEÍDO (XHR)
+        ============================================================= */
+        function markAsRead(btn) {
+            var nsi = btn.dataset.nsi;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando…';
+
+            var xhr = new XMLHttpRequest();
             xhr.open('POST', 'mark-notice-viewed.php', true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
 
-            xhr.onload = function() {
+            xhr.onload = function () {
                 if (xhr.status === 200) {
                     try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (response.success) {
-                            // Actualizar visualmente
-                            const noticeItem = buttonElement.closest('.notice-item');
-                            noticeItem.classList.remove('unread');
+                        var res = JSON.parse(xhr.responseText);
+                        if (res.success) {
+                            var item   = btn.closest('.notice-item');
+                            var status = item.querySelector('.notice-status');
+                            item.classList.remove('unread');
+                            status.textContent = 'Leído';
+                            status.className   = 'notice-status viewed';
+                            btn.style.display  = 'none';
 
-                            // Actualizar estado
-                            const statusBadge = noticeItem.querySelector('.notice-status');
-                            statusBadge.textContent = 'Leído';
-                            statusBadge.classList.remove('pending');
-                            statusBadge.classList.add('viewed');
-
-                            // Ocultar botón de marcar como leído
-                            buttonElement.style.display = 'none';
-
-                            // Actualizar contador de notificaciones pendientes
-                            const badge = document.querySelector('.notices-badge');
+                            var badge = document.querySelector('.notices-badge');
                             if (badge) {
-                                let count = parseInt(badge.textContent);
-                                count--;
-                                if (count > 0) {
-                                    badge.textContent = count;
-                                } else {
-                                    badge.style.display = 'none';
-                                }
+                                var n = parseInt(badge.textContent) - 1;
+                                if (n > 0) { badge.textContent = n; }
+                                else       { badge.style.display = 'none'; }
                             }
-
-                            // Mostrar mensaje de éxito
-                            alert('Notificación marcada como leída');
+                            showToast('Notificación marcada como leída', 'success');
                         }
-                    } catch (e) {
-                        console.error('Error parsing response:', e);
-                    }
+                    } catch (err) { showToast('Respuesta inesperada del servidor', 'error'); }
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> Marcar leído';
+                    showToast('Error al conectar con el servidor', 'error');
                 }
             };
 
-            xhr.onerror = function() {
-                alert('Error al marcar la notificación como leída');
+            xhr.onerror = function () {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Marcar leído';
+                showToast('Error de conexión', 'error');
             };
 
-            xhr.send('notice_student_id=' + noticeStudentId);
+            xhr.send('notice_student_id=' + nsi);
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            const students = <?php echo json_encode(array_map(function ($s) {
-                                    return ['id' => $s->StudentId, 'name' => $s->StudentName];
-                                }, $students)); ?>;
+        /* =============================================================
+           ARCHIVAR ANUNCIO
+        ============================================================= */
+        var archivedSection = document.getElementById('archivedSection');
+        var archivedList    = document.getElementById('archivedList');
+        var archivedLabel   = document.getElementById('archivedLabel');
+        var archivedToggle  = document.getElementById('archivedToggle');
+        var archivedCount   = 0;
 
-            const currentStudentId = <?php echo json_encode($selected_student_id); ?>;
-            let currentIndex = students.findIndex(s => s.id == currentStudentId);
+        if (archivedToggle) {
+            archivedToggle.addEventListener('click', function () {
+                var open = archivedList.classList.toggle('open');
+                archivedToggle.classList.toggle('open', open);
+                archivedToggle.setAttribute('aria-expanded', open);
+            });
+        }
 
-            const prevBtn = document.getElementById('prevStudent');
-            const nextBtn = document.getElementById('nextStudent');
+        function archiveNotice(item) {
+            // Clonar el card, añadir clase archived y moverlo a la lista de archivados
+            var clone = item.cloneNode(true);
+            clone.classList.add('archived');
+            clone.classList.remove('unread');
 
-            if (prevBtn) {
-                prevBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    if (students.length > 0) {
-                        currentIndex = (currentIndex - 1 + students.length) % students.length;
-                        window.location.href = '?student_id=' + students[currentIndex].id;
-                    }
-                });
-            }
+            // Quitar el botón archivar del clon para no archivar dos veces
+            var archBtn = clone.querySelector('[data-action="archive"]');
+            if (archBtn) archBtn.remove();
 
-            if (nextBtn) {
-                nextBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    if (students.length > 0) {
-                        currentIndex = (currentIndex + 1) % students.length;
-                        window.location.href = '?student_id=' + students[currentIndex].id;
-                    }
-                });
+            archivedList.appendChild(clone);
+            archivedCount++;
+
+            // Actualizar label y mostrar sección
+            archivedLabel.textContent = 'Anteriores (' + archivedCount + ')';
+            archivedSection.style.display = 'block';
+
+            // Animar y eliminar el original
+            item.style.transition = 'opacity .3s, transform .3s';
+            item.style.opacity    = '0';
+            item.style.transform  = 'translateX(20px)';
+            setTimeout(function () { item.remove(); }, 300);
+
+            showToast('Anuncio movido a Anteriores', 'success');
+        }
+
+        /* =============================================================
+           EVENT DELEGATION — un solo listener para todos los botones
+        ============================================================= */
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action]');
+            if (!btn) return;
+
+            var action = btn.dataset.action;
+            var item   = btn.closest('.notice-item');
+
+            if (action === 'view-notice') {
+                openModal(
+                    item.dataset.title,
+                    item.dataset.details,
+                    item.dataset.date
+                );
+            } else if (action === 'mark-read') {
+                markAsRead(btn);
+            } else if (action === 'archive') {
+                archiveNotice(item);
             }
         });
+
+        /* =============================================================
+           TOGGLE COLAPSABLE DE CALIFICACIONES (solo activo en móvil)
+        ============================================================= */
+        document.querySelectorAll('.grades-toggle-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var targetId   = btn.dataset.target;
+                var collapsible = document.getElementById(targetId);
+                if (!collapsible) return;
+
+                var isOpen = collapsible.classList.toggle('open');
+                btn.classList.toggle('open', isOpen);
+                btn.setAttribute('aria-expanded', isOpen);
+                var lbl = btn.querySelector('.toggle-label');
+                if (lbl) lbl.textContent = isOpen ? 'Ocultar' : 'Ver materias';
+            });
+        });
+
+        /* =============================================================
+           CARRUSEL DE ESTUDIANTES
+        ============================================================= */
+        var students  = <?php echo json_encode(array_map(fn($s) => ['id' => $s->StudentId, 'name' => $s->StudentName], $students)); ?>;
+        var currentId = <?php echo json_encode($selected_student_id); ?>;
+        var idx       = students.findIndex(function (s) { return s.id == currentId; });
+
+        var prev = document.getElementById('prevStudent');
+        var next = document.getElementById('nextStudent');
+
+        if (students.length > 1) {
+            if (prev) {
+                prev.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    idx = (idx - 1 + students.length) % students.length;
+                    window.location.href = '?student_id=' + students[idx].id;
+                });
+            }
+            if (next) {
+                next.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    idx = (idx + 1) % students.length;
+                    window.location.href = '?student_id=' + students[idx].id;
+                });
+            }
+        }
+
+    }); // DOMContentLoaded
     </script>
 
 </body>
-
 </html>
