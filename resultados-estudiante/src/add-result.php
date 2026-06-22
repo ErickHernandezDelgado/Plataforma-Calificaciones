@@ -461,12 +461,11 @@ if (isset($_POST['submit'])) {
         var level = $('#classid option:selected').data('level');
         var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
         
-        // Generamos opciones según el nivel educativo
-        // 1|X para Bimestre, 2|X para Trimestre
-        if(level === 'infantil') {
-            for(var i=1; i<=5; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
-        } else {
+        // Secundaria: trimestres (3). Todos los demás niveles: bimestres (4).
+        if(level === 'secundaria') {
             for(var i=1; i<=3; i++) $t.append(`<option value="2|${i}">Trimestre ${i}</option>`);
+        } else {
+            for(var i=1; i<=4; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
         }
 
         // Carga de la lista de estudiantes

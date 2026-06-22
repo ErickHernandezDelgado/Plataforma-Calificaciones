@@ -12,27 +12,27 @@ include(__DIR__ . '/includes/config.php');
 if (strlen($_SESSION['alogin']) == "") {
     header("Location: index.php");
 } else {
-    // Si se envió el formulario
     if (isset($_POST['submit'])) {
-        $class = $_POST['class'];      // ID del año/clase
-        $subject = $_POST['subject'];  // ID de la materia
-        $status = 1;                   // Activo por defecto
+        $class   = intval($_POST['class']);
+        $subject = intval($_POST['subject']);
 
-        // Prepara la consulta SQL para insertar la combinación clase-materia
-        $sql = "INSERT INTO tblsubjectcombination(ClassId, SubjectId, status) 
-                VALUES(:class, :subject, :status)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':class', $class, PDO::PARAM_STR);
-        $query->bindParam(':subject', $subject, PDO::PARAM_STR);
-        $query->bindParam(':status', $status, PDO::PARAM_STR);
-        $query->execute();
-
-        // Verifica si se insertó correctamente
-        $lastInsertId = $dbh->lastInsertId();
-        if ($lastInsertId) {
-            $msg = "Combinación agregada correctamente.";
+        // Verificar si esa materia ya está asignada a ese grupo
+        $dup = $dbh->prepare("SELECT id FROM tblsubjectcombination WHERE ClassId = :class AND SubjectId = :subject");
+        $dup->execute([':class' => $class, ':subject' => $subject]);
+        if ($dup->rowCount() > 0) {
+            $error = "Esa materia ya está asignada a este grupo.";
         } else {
-            $error = "Algo salió mal. Intenta de nuevo.";
+            $sql = "INSERT INTO tblsubjectcombination(ClassId, SubjectId, status) VALUES(:class, :subject, 1)";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':class',   $class,   PDO::PARAM_INT);
+            $query->bindParam(':subject', $subject, PDO::PARAM_INT);
+            $query->execute();
+
+            if ($dbh->lastInsertId()) {
+                $msg = "Materia asignada al grupo correctamente.";
+            } else {
+                $error = "Algo salió mal. Intenta de nuevo.";
+            }
         }
     }
 ?>

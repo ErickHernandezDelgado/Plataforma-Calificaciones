@@ -10,20 +10,31 @@ if (strlen($_SESSION['alogin']) == "") {
 } else {
     // Si se envió el formulario
     if (isset($_POST['submit'])) {
-        $subjectname = $_POST['subjectname']; // Nombre de la materia
-        $subjectcode = $_POST['subjectcode']; // Código de la materia
+        $subjectname = trim($_POST['subjectname']);
 
-        // Prepara la consulta para insertar una nueva materia
-        $sql = "INSERT INTO tblsubjects(SubjectName,SubjectCode) VALUES(:subjectname,:subjectcode)";
+        // Generar prefijo: primeras 3 letras del nombre en mayúsculas (solo letras)
+        $prefix = strtoupper(preg_replace('/[^a-zA-Z]/', '', $subjectname));
+        $prefix = substr($prefix, 0, 3);
+
+        // Buscar el siguiente número secuencial para ese prefijo
+        $stmt = $dbh->prepare("SELECT COUNT(*) FROM tblsubjects WHERE SubjectCode LIKE :prefix");
+        $stmt->execute([':prefix' => $prefix . '-%']);
+        $count = $stmt->fetchColumn();
+        $subjectcode = $prefix . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+
+        $language = $_POST['language'];
+
+        $sql = "INSERT INTO tblsubjects(SubjectName, SubjectCode, Language) VALUES(:subjectname, :subjectcode, :language)";
         $query = $dbh->prepare($sql);
         $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
         $query->bindParam(':subjectcode', $subjectcode, PDO::PARAM_STR);
+        $query->bindParam(':language',    $language,    PDO::PARAM_STR);
         $query->execute();
 
-        // Verifica si se insertó correctamente
         $lastInsertId = $dbh->lastInsertId();
         if ($lastInsertId) {
-            $msg = "Materia creada correctamente";
+            $lang_label = ($language === 'en') ? 'Inglés' : 'Español';
+            $msg = "Materia creada correctamente (Código: $subjectcode | Idioma: $lang_label)";
         } else {
             $error = "Hubo un fallo, reintenta";
         }
@@ -90,19 +101,36 @@ if (strlen($_SESSION['alogin']) == "") {
                                     <!-- Formulario para crear una nueva materia -->
                                     <form method="post">
                                         <div class="form-group">
-                                            <label for="default" class="control-label">Nombre Materia</label>
-                                            <input type="text" name="subjectname" class="form-control" id="default" placeholder="Nombre Materia" required>
+                                            <label class="control-label">Nombre Materia</label>
+                                            <input type="text" name="subjectname" class="form-control" placeholder="Nombre Materia" required>
                                         </div>
 
                                         <div class="form-group">
-                                            <label for="default" class="control-label">Código Materia</label>
-                                            <input type="text" name="subjectcode" class="form-control" id="default" placeholder="Código Materia" required>
+                                            <label class="control-label">Código Materia</label>
+                                            <input type="text" class="form-control" id="preview_code" placeholder="Se generará automáticamente (ej. MAT-001)" disabled>
+                                            <span class="help-block">El código se genera automáticamente a partir del nombre.</span>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label class="control-label">Idioma</label>
+                                            <select name="language" class="form-control" required>
+                                                <option value="es">Español</option>
+                                                <option value="en">Inglés</option>
+                                            </select>
+                                            <span class="help-block">Las materias en inglés se gestionan en el módulo de inglés.</span>
                                         </div>
 
                                         <div class="form-group">
                                             <button type="submit" name="submit" class="btn btn-success">Enviar</button>
                                         </div>
                                     </form>
+
+                                    <script>
+                                    document.querySelector('[name="subjectname"]').addEventListener('input', function() {
+                                        var name = this.value.replace(/[^a-zA-Z]/g, '').toUpperCase().substring(0, 3);
+                                        document.getElementById('preview_code').placeholder = name ? name + '-###' : 'Se generará automáticamente (ej. MAT-001)';
+                                    });
+                                    </script>
                                 </div>
                             </div>
                         </div>

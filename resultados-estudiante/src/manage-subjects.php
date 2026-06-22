@@ -1,11 +1,46 @@
 <?php
 session_start();
-error_reporting(E_ALL & ~E_NOTICE); 
+error_reporting(E_ALL & ~E_NOTICE);
 include(__DIR__ . '/includes/config.php');
 
 if (empty($_SESSION['alogin'])) {
     header("Location: index.php");
     exit;
+}
+
+$msg = '';
+$error = '';
+
+// Eliminar materia
+if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
+    $subjectId = $_GET['delete'];
+
+    $checks = [
+        'tblsubjectcombination' => 'grupos asignados',
+        'tblteacher_subject'    => 'docentes asignados',
+        'tblresult'             => 'calificaciones registradas',
+    ];
+    $blocking = [];
+    foreach ($checks as $table => $label) {
+        $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE SubjectId = :id");
+        $chk->bindParam(':id', $subjectId, PDO::PARAM_INT);
+        $chk->execute();
+        if ($chk->fetchColumn() > 0) {
+            $blocking[] = $label;
+        }
+    }
+
+    if (!empty($blocking)) {
+        $error = "No se puede eliminar esta materia porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
+    } else {
+        $del = $dbh->prepare("DELETE FROM tblsubjects WHERE id = :id");
+        $del->bindParam(':id', $subjectId, PDO::PARAM_INT);
+        if ($del->execute()) {
+            $msg = "Materia eliminada correctamente.";
+        } else {
+            $error = "No se pudo eliminar la materia. Intenta de nuevo.";
+        }
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -97,6 +132,16 @@ if (empty($_SESSION['alogin'])) {
                             </form>
                         </div>
 
+                        <?php if ($msg): ?>
+                            <div class="alert alert-success left-icon-alert" role="alert">
+                                <strong>Bien hecho!</strong> <?php echo htmlentities($msg); ?>
+                            </div>
+                        <?php elseif ($error): ?>
+                            <div class="alert alert-danger left-icon-alert" role="alert">
+                                <strong>Inconvenientes:</strong> <?php echo htmlentities($error); ?>
+                            </div>
+                        <?php endif; ?>
+
                         <div class="panel panel-default panel-verde-ipt">
                             <div class="panel-body p-20">
                                 <div class="table-responsive"> 
@@ -152,7 +197,13 @@ if (empty($_SESSION['alogin'])) {
                                                 </td>
                                                 <td class="text-center">
                                                     <a href="edit-subject.php?subjectid=<?php echo $result->id; ?>" class="btn btn-info btn-xs" title="Editar"><i class="fa fa-edit"></i></a>
-                                                    <a href="add-subjectcombination.php?subjectid=<?php echo $result->id; ?>" class="btn btn-warning btn-xs" title="Asignar"><i class="fa fa-link"></i></a>
+                                                    <a href="add-subjectcombination.php?subjectid=<?php echo $result->id; ?>" class="btn btn-warning btn-xs" title="Asignar a grupo"><i class="fa fa-link"></i></a>
+                                                    <a href="manage-subjects.php?delete=<?php echo $result->id; ?>"
+                                                       class="btn btn-danger btn-xs"
+                                                       title="Eliminar"
+                                                       onclick="return confirm('¿Eliminar la materia «<?php echo htmlspecialchars($result->SubjectName, ENT_QUOTES); ?>»? Esta acción no se puede deshacer.');">
+                                                        <i class="fa fa-trash"></i>
+                                                    </a>
                                                 </td>
                                             </tr>
                                             <?php } ?>

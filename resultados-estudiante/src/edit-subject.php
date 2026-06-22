@@ -14,30 +14,16 @@ if (strlen($_SESSION['alogin']) == "") {
     header("Location: index.php");
 } else {
 
-    // Verifica si se ha enviado el formulario para actualizar
     if (isset($_POST['Update'])) {
-        // Obtiene el ID de la materia desde el parámetro GET
         $sid = intval($_GET['subjectid']);
+        $subjectname = trim($_POST['subjectname']);
 
-        // Obtiene los valores enviados desde el formulario
-        $subjectname = $_POST['subjectname'];
-        $subjectcode = $_POST['subjectcode'];
-
-        // Consulta SQL para actualizar los datos de la materia
-        $sql = "update  tblsubjects set SubjectName=:subjectname,SubjectCode=:subjectcode where id=:sid";
-
-        // Prepara la consulta
+        $sql = "UPDATE tblsubjects SET SubjectName = :subjectname WHERE id = :sid";
         $query = $dbh->prepare($sql);
-
-        // Asocia los parámetros a los valores
         $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
-        $query->bindParam(':subjectcode', $subjectcode, PDO::PARAM_STR);
         $query->bindParam(':sid', $sid, PDO::PARAM_STR);
-
-        // Ejecuta la consulta
         $query->execute();
 
-        // Mensaje de éxito
         $msg = " Información de Materia Actualizada Correctamente";
     }
 ?>
@@ -121,17 +107,18 @@ if (strlen($_SESSION['alogin']) == "") {
                                         ?>
                                                 <!-- Campo: Nombre de la materia -->
                                                 <div class="form-group">
-                                                    <label for="default" class="col-sm-2 control-label">Nombre Materia</label>
+                                                    <label class="col-sm-2 control-label">Nombre Materia</label>
                                                     <div class="col-sm-10">
-                                                        <input type="text" name="subjectname" value="<?php echo htmlentities($result->SubjectName); ?>" class="form-control" id="default" placeholder="Nombre Materia" required="required">
+                                                        <input type="text" name="subjectname" value="<?php echo htmlentities($result->SubjectName); ?>" class="form-control" placeholder="Nombre Materia" required>
                                                     </div>
                                                 </div>
 
-                                                <!-- Campo: Código de la materia -->
+                                                <!-- Código: solo lectura, no se puede editar -->
                                                 <div class="form-group">
-                                                    <label for="default" class="col-sm-2 control-label">Código Materia</label>
+                                                    <label class="col-sm-2 control-label">Código Materia</label>
                                                     <div class="col-sm-10">
-                                                        <input type="text" name="subjectcode" class="form-control" value="<?php echo htmlentities($result->SubjectCode); ?>" id="default" placeholder="Código Materia" required="required">
+                                                        <input type="text" class="form-control" value="<?php echo htmlentities($result->SubjectCode); ?>" disabled>
+                                                        <span class="help-block">El código se asigna automáticamente al crear la materia.</span>
                                                     </div>
                                                 </div>
                                         <?php }

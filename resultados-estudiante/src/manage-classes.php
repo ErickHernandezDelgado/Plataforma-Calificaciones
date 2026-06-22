@@ -1,18 +1,46 @@
 <?php
-// Inicia la sesión
 session_start();
-
-// Desactiva la visualización de errores
 error_reporting(0);
-
-// Incluye archivo de configuración (conexión a base de datos, etc.)
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el administrador ha iniciado sesión
 if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige a la página de login
     header("Location: index.php");
 } else {
+
+// Eliminar año si se recibe el parámetro
+if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
+    $classId = $_GET['delete'];
+
+    // Verificar dependencias antes de eliminar
+    $checks = [
+        'tblstudents'           => 'estudiantes inscritos',
+        'tblsubjectcombination' => 'materias asignadas',
+        'tblteacher_subject'    => 'docentes asignados',
+        'tblresult'             => 'calificaciones registradas',
+    ];
+    $blocking = [];
+    foreach ($checks as $table => $label) {
+        $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE ClassId = :id");
+        $chk->bindParam(':id', $classId, PDO::PARAM_INT);
+        $chk->execute();
+        if ($chk->fetchColumn() > 0) {
+            $blocking[] = $label;
+        }
+    }
+
+    if (!empty($blocking)) {
+        $error = " No se puede eliminar este año porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
+    } else {
+        $sql = "DELETE FROM tblclasses WHERE id = :id";
+        $query = $dbh->prepare($sql);
+        $query->bindParam(':id', $classId, PDO::PARAM_INT);
+        if ($query->execute()) {
+            $msg = " Año eliminado correctamente.";
+        } else {
+            $error = " No se pudo eliminar el año. Intenta de nuevo.";
+        }
+    }
+}
 ?>
 
     <!-- Incluye estilos para DataTables -->
@@ -126,10 +154,15 @@ if (strlen($_SESSION['alogin']) == "") {
                                                             <!-- Fecha de creación del registro -->
                                                             <td><?php echo htmlentities($result->CreationDate); ?></td>
 
-                                                            <!-- Botón para editar el registro -->
+                                                            <!-- Acciones -->
                                                             <td>
                                                                 <a href="edit-class.php?classid=<?php echo htmlentities($result->id); ?>" class="btn btn-info">
-                                                                    <i class="fa fa-edit" title="Edit Record"></i>
+                                                                    <i class="fa fa-edit" title="Editar"></i>
+                                                                </a>
+                                                                <a href="manage-classes.php?delete=<?php echo htmlentities($result->id); ?>"
+                                                                   class="btn btn-danger"
+                                                                   onclick="return confirm('¿Seguro que deseas eliminar el año <?php echo htmlspecialchars($result->ClassName . ' ' . $result->Section, ENT_QUOTES); ?>? Esta acción no se puede deshacer.');">
+                                                                    <i class="fa fa-trash" title="Eliminar"></i>
                                                                 </a>
                                                             </td>
                                                         </tr>

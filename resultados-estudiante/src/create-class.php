@@ -10,16 +10,17 @@ if (strlen($_SESSION['alogin']) == "") {
 } else {
     // Si el formulario fue enviado
     if (isset($_POST['submit'])) {
-        $classname = $_POST['classname']; // Nombre del año (ej. Primero)
-        $classnamenumeric = $_POST['classnamenumeric']; // Número del año (ej. 1)
-        $section = $_POST['section']; // Sección (ej. A)
+        $classname = $_POST['classname'];
+        $classnamenumeric = $_POST['classnamenumeric'];
+        $section = $_POST['section'];
+        $educationLevel = $_POST['educationLevel'];
 
-        // Inserta los datos en la tabla tblclasses
-        $sql = "INSERT INTO  tblclasses(ClassName,ClassNameNumeric,Section) VALUES(:classname,:classnamenumeric,:section)";
+        $sql = "INSERT INTO tblclasses(ClassName, ClassNameNumeric, Section, educationLevel) VALUES(:classname, :classnamenumeric, :section, :educationLevel)";
         $query = $dbh->prepare($sql);
         $query->bindParam(':classname', $classname, PDO::PARAM_STR);
         $query->bindParam(':classnamenumeric', $classnamenumeric, PDO::PARAM_STR);
         $query->bindParam(':section', $section, PDO::PARAM_STR);
+        $query->bindParam(':educationLevel', $educationLevel, PDO::PARAM_STR);
         $query->execute();
 
         // Verifica si se insertó correctamente
@@ -106,9 +107,23 @@ if (strlen($_SESSION['alogin']) == "") {
                                             <span class="help-block">Puedes poner A, B, C...</span>
                                         </div>
 
+                                        <!-- Campo: Nivel educativo -->
+                                        <div class="form-group has-success">
+                                            <label class="control-label">Nivel Educativo</label>
+                                            <select name="educationLevel" class="form-control" required>
+                                                <option value="">Seleccionar nivel...</option>
+                                                <option value="maternal">Maternal</option>
+                                                <option value="preprimaria">Pre-primaria</option>
+                                                <option value="kinder">Kinder</option>
+                                                <option value="primaria">Primaria</option>
+                                                <option value="secundaria">Secundaria</option>
+                                            </select>
+                                            <span class="help-block">Determina si el grupo usa bimestres (Maternal–Primaria) o trimestres (Secundaria).</span>
+                                        </div>
+
                                         <!-- Botón para enviar -->
                                         <div class="form-group has-success">
-                                            <button type="submit" name="submit" class="btn btn-success">Submit</button>
+                                            <button type="submit" name="submit" class="btn btn-success">Crear Grupo</button>
                                         </div>
                                     </form>
                                 </div>

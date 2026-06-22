@@ -18,22 +18,22 @@ if (strlen($_SESSION['alogin']) == "") {
         $classname = $_POST['classname'];
         $classnamenumeric = $_POST['classnamenumeric'];
         $section = $_POST['section'];
+        $educationLevel = $_POST['educationLevel'];
 
-        // Obtiene el ID de la clase desde la URL
         $cid = intval($_GET['classid']);
 
-        // Prepara consulta SQL para actualizar los datos de la clase
-        $sql = "UPDATE tblclasses 
+        $sql = "UPDATE tblclasses
                 SET ClassName = :classname,
                     ClassNameNumeric = :classnamenumeric,
-                    Section = :section 
+                    Section = :section,
+                    educationLevel = :educationLevel
                 WHERE id = :cid";
 
-        // Ejecuta la consulta preparada
         $query = $dbh->prepare($sql);
         $query->bindParam(':classname', $classname, PDO::PARAM_STR);
         $query->bindParam(':classnamenumeric', $classnamenumeric, PDO::PARAM_STR);
         $query->bindParam(':section', $section, PDO::PARAM_STR);
+        $query->bindParam(':educationLevel', $educationLevel, PDO::PARAM_STR);
         $query->bindParam(':cid', $cid, PDO::PARAM_STR);
         $query->execute();
 
@@ -129,6 +129,27 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <label class="control-label">Sección</label>
                                                 <input type="text" name="section" value="<?php echo htmlentities($result->Section); ?>" required class="form-control">
                                                 <span class="help-block">Ejemplo: A, B, C</span>
+                                            </div>
+
+                                            <div class="form-group has-success">
+                                                <label class="control-label">Nivel Educativo</label>
+                                                <select name="educationLevel" class="form-control" required>
+                                                    <option value="">Seleccionar nivel...</option>
+                                                    <?php
+                                                    $niveles = [
+                                                        'maternal'    => 'Maternal',
+                                                        'preprimaria' => 'Pre-primaria',
+                                                        'kinder'      => 'Kinder',
+                                                        'primaria'    => 'Primaria',
+                                                        'secundaria'  => 'Secundaria',
+                                                    ];
+                                                    foreach ($niveles as $val => $label) {
+                                                        $sel = ($result->educationLevel === $val) ? 'selected' : '';
+                                                        echo "<option value=\"$val\" $sel>$label</option>";
+                                                    }
+                                                    ?>
+                                                </select>
+                                                <span class="help-block">Determina si el grupo usa bimestres (Maternal–Primaria) o trimestres (Secundaria).</span>
                                             </div>
                                     <?php
                                         }

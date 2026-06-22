@@ -15,39 +15,72 @@ if (strlen($_SESSION['alogin']) == "") {
     exit;
 } else {
 
-    // Obtiene y convierte el ID del estudiante desde el parámetro GET
     $stid = intval($_GET['stid']);
 
-    // Si el formulario fue enviado
-    if (isset($_POST['submit'])) {
-        // Recupera los valores del formulario
-        $studentname = $_POST['fullanme']; // Nota: 'fullanme' está mal escrito, debería ser 'fullname'
-        $roolid = $_POST['rollid'];
-        $studentemail = $_POST['emailid'];
-        $curp = $_POST['curp'];
-        $status = $_POST['status'];
+    // Quitar tutor
+    if (isset($_GET['remove_tutor']) && is_numeric($_GET['remove_tutor'])) {
+        $tid = intval($_GET['remove_tutor']);
+        $dbh->prepare("DELETE FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid")
+            ->execute([':sid' => $stid, ':tid' => $tid]);
+        $dbh->prepare("UPDATE tblstudents SET primary_tutor_id = NULL WHERE StudentId = :sid AND primary_tutor_id = :tid")
+            ->execute([':sid' => $stid, ':tid' => $tid]);
+        $msg = "Tutor desvinculado correctamente.";
+    }
 
-        // Consulta SQL para actualizar los datos del estudiante
-        $sql = "UPDATE tblstudents 
-                SET StudentName = :studentname, RollId = :roolid, StudentEmail = :studentemail, 
-                    CURP = :curp, Status = :status 
+    // Agregar tutor
+    if (isset($_POST['add_tutor'])) {
+        if ($_POST['tutor_option'] === 'create') {
+            $t_email = trim($_POST['tutor_email']);
+            $t_rel   = $_POST['relationship_type'];
+            $check = $dbh->prepare("SELECT id FROM admin WHERE UserName = :u");
+            $check->execute([':u' => $t_email]);
+            if ($check->rowCount() > 0) {
+                $error = "Ese correo ya existe. Usa la opción 'Tutor existente'.";
+            } else {
+                $raw_pass = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
+                $dbh->prepare("INSERT INTO admin (UserName, Password, role) VALUES(:u, :p, 'tutor')")
+                    ->execute([':u' => $t_email, ':p' => md5($raw_pass)]);
+                $new_tid = $dbh->lastInsertId();
+                $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
+                    ->execute([':sid' => $stid, ':tid' => $new_tid, ':rel' => $t_rel]);
+                $msg = "Tutor creado y vinculado. Credenciales — Usuario: <b>$t_email</b> | Contraseña: <b style='color:red'>$raw_pass</b>";
+            }
+        } elseif ($_POST['tutor_option'] === 'existing') {
+            $existing_tid = intval($_POST['existing_tutor_id']);
+            $t_rel = $_POST['relationship_type'];
+            $dup = $dbh->prepare("SELECT id FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid");
+            $dup->execute([':sid' => $stid, ':tid' => $existing_tid]);
+            if ($dup->rowCount() > 0) {
+                $error = "Ese tutor ya está vinculado a este estudiante.";
+            } else {
+                $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
+                    ->execute([':sid' => $stid, ':tid' => $existing_tid, ':rel' => $t_rel]);
+                $msg = "Tutor vinculado correctamente.";
+            }
+        }
+    }
+
+    if (isset($_POST['submit'])) {
+        $studentname  = $_POST['fullanme'];
+        $studentemail = $_POST['emailid'];
+        $curp         = $_POST['curp'];
+        $status       = $_POST['status'];
+        $classid      = intval($_POST['classid']);
+
+        $sql = "UPDATE tblstudents
+                SET StudentName = :studentname, StudentEmail = :studentemail,
+                    CURP = :curp, Status = :status, ClassId = :classid
                 WHERE StudentId = :stid";
 
-        // Prepara la consulta
         $query = $dbh->prepare($sql);
-
-        // Asocia los parámetros a los valores del formulario
-        $query->bindParam(':studentname', $studentname, PDO::PARAM_STR);
-        $query->bindParam(':roolid', $roolid, PDO::PARAM_STR);
+        $query->bindParam(':studentname',  $studentname,  PDO::PARAM_STR);
         $query->bindParam(':studentemail', $studentemail, PDO::PARAM_STR);
-        $query->bindParam(':curp', $curp, PDO::PARAM_STR);
-        $query->bindParam(':status', $status, PDO::PARAM_STR);
-        $query->bindParam(':stid', $stid, PDO::PARAM_INT);
-
-        // Ejecuta la consulta
+        $query->bindParam(':curp',         $curp,         PDO::PARAM_STR);
+        $query->bindParam(':status',       $status,       PDO::PARAM_STR);
+        $query->bindParam(':classid',      $classid,      PDO::PARAM_INT);
+        $query->bindParam(':stid',         $stid,         PDO::PARAM_INT);
         $query->execute();
 
-        // Mensaje de éxito
         $msg = "Información de estudiante actualizada correctamente";
     }
 ?>
@@ -130,14 +163,6 @@ if (strlen($_SESSION['alogin']) == "") {
                                             </div>
                                         </div>
 
-                                        <!-- Campo: ID Rol -->
-                                        <div class="form-group">
-                                            <label class="col-sm-2 control-label">ID Rol</label>
-                                            <div class="col-sm-10">
-                                                <input type="text" name="rollid" class="form-control" maxlength="5" value="<?php echo htmlentities($result->RollId); ?>" required>
-                                            </div>
-                                        </div>
-
                                         <!-- Campo: Correo -->
                                         <div class="form-group">
                                             <label class="col-sm-2 control-label">Correo</label>
@@ -154,11 +179,20 @@ if (strlen($_SESSION['alogin']) == "") {
                                             </div>
                                         </div>
 
-                                        <!-- Campo: Año y Sección -->
+                                        <!-- Campo: Grupo (seleccionable) -->
                                         <div class="form-group">
-                                            <label class="col-sm-2 control-label">Año</label>
+                                            <label class="col-sm-2 control-label">Grupo</label>
                                             <div class="col-sm-10">
-                                                <input type="text" class="form-control" value="<?php echo htmlentities($result->ClassName) . " - Sección " . htmlentities($result->Section); ?>" readonly>
+                                                <select name="classid" class="form-control" required>
+                                                    <?php
+                                                    $qc = $dbh->prepare("SELECT id, ClassName, Section FROM tblclasses ORDER BY ClassName ASC, Section ASC");
+                                                    $qc->execute();
+                                                    foreach ($qc->fetchAll(PDO::FETCH_OBJ) as $class) {
+                                                        $sel = ($class->id == $result->ClassId) ? 'selected' : '';
+                                                        echo "<option value=\"{$class->id}\" $sel>" . htmlentities($class->ClassName . " - Sección " . $class->Section) . "</option>";
+                                                    }
+                                                    ?>
+                                                </select>
                                             </div>
                                         </div>
 
@@ -186,16 +220,126 @@ if (strlen($_SESSION['alogin']) == "") {
                                             </div>
                                         </div>
                                     <?php } else {
-                                        // Si no se encuentra el estudiante, muestra un mensaje
                                         echo "<p>Estudiante no encontrado.</p>";
                                     } ?>
                                 </form>
+
+                                <?php if ($result): ?>
+                                <hr>
+                                <h5><i class="fa fa-users"></i> Tutores / Responsables</h5>
+
+                                <!-- Tabla de tutores actuales -->
+                                <?php
+                                $qt = $dbh->prepare("SELECT st.TutorId, st.RelationshipType, st.PrimaryContact, a.UserName
+                                                     FROM student_tutor st
+                                                     JOIN admin a ON a.id = st.TutorId
+                                                     WHERE st.StudentId = :sid");
+                                $qt->execute([':sid' => $stid]);
+                                $tutors = $qt->fetchAll(PDO::FETCH_OBJ);
+                                ?>
+                                <?php if ($tutors): ?>
+                                <table class="table table-bordered table-sm" style="margin-bottom:20px;">
+                                    <thead><tr><th>Email</th><th>Relación</th><th>Principal</th><th>Acción</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($tutors as $t): ?>
+                                        <tr>
+                                            <td><?php echo htmlentities($t->UserName); ?></td>
+                                            <td><?php echo ucfirst(htmlentities($t->RelationshipType)); ?></td>
+                                            <td><?php echo $t->PrimaryContact ? '<span class="label label-success">Sí</span>' : 'No'; ?></td>
+                                            <td>
+                                                <a href="edit-student.php?stid=<?php echo $stid; ?>&remove_tutor=<?php echo $t->TutorId; ?>"
+                                                   class="btn btn-danger btn-xs"
+                                                   onclick="return confirm('¿Quitar a <?php echo htmlspecialchars($t->UserName, ENT_QUOTES); ?> como tutor?');">
+                                                    <i class="fa fa-trash"></i> Quitar
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                                <?php else: ?>
+                                    <p class="text-muted">Este estudiante no tiene tutores vinculados.</p>
+                                <?php endif; ?>
+
+                                <!-- Formulario para agregar tutor -->
+                                <form method="post">
+                                    <h6><i class="fa fa-plus"></i> Agregar Tutor</h6>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="radio" name="tutor_option" value="create" checked onchange="toggleTutorEdit('c')"> Nuevo tutor
+                                        </label>
+                                        &nbsp;&nbsp;
+                                        <label>
+                                            <input type="radio" name="tutor_option" value="existing" onchange="toggleTutorEdit('e')"> Tutor existente
+                                        </label>
+                                    </div>
+
+                                    <div id="te_create">
+                                        <div class="row">
+                                            <div class="form-group col-sm-6">
+                                                <label>Email del tutor</label>
+                                                <input type="email" name="tutor_email" class="form-control" placeholder="correo@ejemplo.com">
+                                            </div>
+                                            <div class="form-group col-sm-3">
+                                                <label>Relación</label>
+                                                <select name="relationship_type" class="form-control">
+                                                    <option value="padre">Padre</option>
+                                                    <option value="madre">Madre</option>
+                                                    <option value="tutor">Tutor</option>
+                                                    <option value="abuelo">Abuelo/a</option>
+                                                    <option value="otro">Otro</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="te_existing" style="display:none;">
+                                        <div class="row">
+                                            <div class="form-group col-sm-6">
+                                                <label>Seleccionar tutor existente</label>
+                                                <select name="existing_tutor_id" class="form-control">
+                                                    <option value="">-- Seleccionar --</option>
+                                                    <?php
+                                                    $qe = $dbh->prepare("SELECT id, UserName FROM admin WHERE role='tutor' ORDER BY UserName ASC");
+                                                    $qe->execute();
+                                                    foreach ($qe->fetchAll(PDO::FETCH_OBJ) as $te) {
+                                                        echo "<option value='{$te->id}'>" . htmlentities($te->UserName) . "</option>";
+                                                    }
+                                                    ?>
+                                                </select>
+                                            </div>
+                                            <div class="form-group col-sm-3">
+                                                <label>Relación</label>
+                                                <select name="relationship_type" class="form-control">
+                                                    <option value="padre">Padre</option>
+                                                    <option value="madre">Madre</option>
+                                                    <option value="tutor">Tutor</option>
+                                                    <option value="abuelo">Abuelo/a</option>
+                                                    <option value="otro">Otro</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" name="add_tutor" class="btn btn-success btn-sm">
+                                        <i class="fa fa-plus"></i> Agregar Tutor
+                                    </button>
+                                </form>
+                                <?php endif; ?>
+
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+
+<script>
+function toggleTutorEdit(mode) {
+    document.getElementById('te_create').style.display  = (mode === 'c') ? 'block' : 'none';
+    document.getElementById('te_existing').style.display = (mode === 'e') ? 'block' : 'none';
+}
+</script>
 
 <!-- Incluye el pie de página -->
 <?php include('includes/footer.php'); ?>

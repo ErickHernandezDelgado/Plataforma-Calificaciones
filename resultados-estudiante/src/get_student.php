@@ -40,12 +40,13 @@ if (!empty($_POST["classid1"])) {
     $period_info = $stmt_period->fetch(PDO::FETCH_ASSOC);
 
     // Determinar tipo de período basado en educationLevel
+    // Secundaria: trimestres (3). Todos los demás niveles: bimestres (4).
     $label = ($lang == 'en') ? "Subjects" : "Materias";
     if ($period_info) {
-        if ($period_info['educationLevel'] === 'infantil') {
-            $label = ($lang == 'en') ? "Subjects (5 Periods)" : "Bimestrales (5 períodos)";
-        } elseif ($period_info['educationLevel'] === 'primaria' || $period_info['educationLevel'] === 'secundaria') {
-            $label = ($lang == 'en') ? "Subjects (3 Periods)" : "Trimestrales (3 períodos)";
+        if ($period_info['educationLevel'] === 'secundaria') {
+            $label = ($lang == 'en') ? "Subjects (3 Trimesters)" : "Trimestrales (3 períodos)";
+        } else {
+            $label = ($lang == 'en') ? "Subjects (4 Bimonthly)" : "Bimestrales (4 períodos)";
         }
     }
 

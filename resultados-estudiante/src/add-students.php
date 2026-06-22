@@ -217,6 +217,10 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                                     <select name="relationship_type" class="form-control">
                                                         <option value="padre">Padre</option>
                                                         <option value="madre">Madre</option>
+                                                        <option value="tutor">Tutor Legal</option>
+                                                        <option value="abuelo">Abuelo/a</option>
+                                                        <option value="tio">Tío/a</option>
+                                                        <option value="otro">Otro</option>
                                                     </select>
                                                 </div>
                                             </div>
