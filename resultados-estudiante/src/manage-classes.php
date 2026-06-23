@@ -156,8 +156,8 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
 
                                                             <!-- Acciones -->
                                                             <td>
-                                                                <a href="edit-class.php?classid=<?php echo htmlentities($result->id); ?>" class="btn btn-info">
-                                                                    <i class="fa fa-edit" title="Editar"></i>
+                                                                <a href="class-setup.php?classid=<?php echo htmlentities($result->id); ?>" class="btn btn-info" title="Configurar grupo">
+                                                                    <i class="fa fa-cogs"></i>
                                                                 </a>
                                                                 <a href="manage-classes.php?delete=<?php echo htmlentities($result->id); ?>"
                                                                    class="btn btn-danger"

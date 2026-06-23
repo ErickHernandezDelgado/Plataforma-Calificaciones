@@ -197,7 +197,6 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                                 </td>
                                                 <td class="text-center">
                                                     <a href="edit-subject.php?subjectid=<?php echo $result->id; ?>" class="btn btn-info btn-xs" title="Editar"><i class="fa fa-edit"></i></a>
-                                                    <a href="add-subjectcombination.php?subjectid=<?php echo $result->id; ?>" class="btn btn-warning btn-xs" title="Asignar a grupo"><i class="fa fa-link"></i></a>
                                                     <a href="manage-subjects.php?delete=<?php echo $result->id; ?>"
                                                        class="btn btn-danger btn-xs"
                                                        title="Eliminar"

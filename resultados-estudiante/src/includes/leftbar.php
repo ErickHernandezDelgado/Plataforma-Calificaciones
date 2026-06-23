@@ -38,7 +38,6 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <ul class="child-nav">
                         <li><a href="add-teacher.php"><i class="fa fa-plus"></i> <span>+ Agregar Docente</span></a></li>
                         <li><a href="manage-teacher.php"><i class="fa fa-list"></i> <span>Gestionar Docentes</span></a></li>
-                        <li><a href="assign-teacher-subject.php"><i class="fa fa-book"></i> <span>Asignar Materias</span></a></li>
                     </ul>
                 </li>
 
