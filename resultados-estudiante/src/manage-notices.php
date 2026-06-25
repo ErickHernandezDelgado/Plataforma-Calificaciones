@@ -8,29 +8,31 @@ error_reporting(0);
 // Incluye archivo de configuración (conexión a la base de datos, etc.)
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el administrador ha iniciado sesión
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige al login
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
-    // Proceso para eliminar un comunicado si se recibe el parámetro 'id' vía GET
-    if ($_GET['id']) {
-        // Obtiene el ID del comunicado a eliminar
-        $id = $_GET['id'];
+    // Genera un token CSRF para proteger el archivado de comunicados
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
 
-        // Prepara consulta SQL para eliminar el comunicado con el ID dado
-        $sql = "delete from tblnotice where id=:id";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':id', $id, PDO::PARAM_STR);
+    // Proceso para archivar un comunicado (borrado lógico) vía POST + CSRF.
+    // Se usa is_active = 0 (no DELETE físico) para conservar el historial de lectura.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_id'])) {
+        if (isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']) && is_numeric($_POST['delete_id'])) {
+            $id = (int) $_POST['delete_id'];
+            $sql = "UPDATE tblnotice SET is_active = 0 WHERE id = :id";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':id', $id, PDO::PARAM_INT);
+            $query->execute();
 
-        // Ejecuta la consulta de eliminación
-        $query->execute();
-
-        // Muestra alerta confirmando eliminación
-        echo '<script>alert("Comunicado Eliminado")</script>';
-
-        // Redirige nuevamente a la página de gestión de comunicados
-        echo "<script>window.location.href ='manage-notices.php'</script>";
+            echo '<script>alert("Comunicado eliminado")</script>';
+            echo "<script>window.location.href ='manage-notices.php'</script>";
+        } else {
+            echo '<script>alert("Solicitud no válida. Recarga la página e inténtalo de nuevo.")</script>';
+        }
     }
 ?>
 
@@ -133,8 +135,8 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 $cnt = 1;
 
                                                 // Si existen registros, los muestra en la tabla
-                                                if ($query->rowCount() > 0) {
-                                                    foreach ($results as $result) { 
+                                                if (!empty($results)) {
+                                                    foreach ($results as $result) {
                                                         // Determinar descripción de audiencia
                                                         $audience_desc = '';
                                                         if ($result->audience_type == 'all') {
@@ -179,9 +181,13 @@ if (strlen($_SESSION['alogin']) == "") {
                                                                 <button class="btn btn-info btn-sm" onclick="loadNoticeDetails(<?php echo intval($result->id); ?>)" title="Ver detalles del anuncio">
                                                                     <i class="fa fa-eye"></i> Ver
                                                                 </button>
-                                                                <a href="manage-notices.php?id=<?php echo htmlentities($result->id); ?>" onclick="return confirm('Deseas eliminar este comunicado?');" class="btn btn-danger btn-sm" title="Eliminar este anuncio">
-                                                                    <i class="fa fa-trash"></i>
-                                                                </a>
+                                                                <form method="post" action="manage-notices.php" style="display:inline;" onsubmit="return confirm('¿Deseas eliminar este comunicado?');">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                                    <input type="hidden" name="delete_id" value="<?php echo (int)$result->id; ?>">
+                                                                    <button type="submit" class="btn btn-danger btn-sm" title="Eliminar este anuncio">
+                                                                        <i class="fa fa-trash"></i>
+                                                                    </button>
+                                                                </form>
                                                             </td>
                                                         </tr>
                                                 <?php

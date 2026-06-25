@@ -8,80 +8,140 @@ error_reporting(0);
 // Incluye el archivo de configuración (conexión a la base de datos, entre otros)
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el usuario administrador ha iniciado sesión
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige al login
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
     exit;
 } else {
 
-    $stid = intval($_GET['stid']);
+    $stid = intval($_GET['stid'] ?? 0);
+    $msg = '';
+    $error = '';
+    $nueva_clave_tutor = '';
 
-    // Quitar tutor
-    if (isset($_GET['remove_tutor']) && is_numeric($_GET['remove_tutor'])) {
-        $tid = intval($_GET['remove_tutor']);
-        $dbh->prepare("DELETE FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid")
-            ->execute([':sid' => $stid, ':tid' => $tid]);
-        $dbh->prepare("UPDATE tblstudents SET primary_tutor_id = NULL WHERE StudentId = :sid AND primary_tutor_id = :tid")
-            ->execute([':sid' => $stid, ':tid' => $tid]);
-        $msg = "Tutor desvinculado correctamente.";
+    // Genera un token CSRF para las acciones POST/GET destructivas
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
 
-    // Agregar tutor
+    // Relaciones válidas según el ENUM de student_tutor
+    $relaciones_validas = ['padre', 'madre', 'tutor_legal', 'abuelo'];
+
+    // Verifica que el estudiante exista antes de procesar cualquier acción
+    $chkStudent = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE StudentId = :id");
+    $chkStudent->execute([':id' => $stid]);
+    if (!$stid || !$chkStudent->fetch()) {
+        header("Location: manage-students.php");
+        exit;
+    }
+
+    // Helper de validación CSRF para esta pantalla
+    $csrf_valido = isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
+
+    // Quitar tutor (POST + CSRF)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_tutor'])) {
+        if (!$csrf_valido) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } else {
+            $tid = intval($_POST['remove_tutor']);
+            $dbh->prepare("DELETE FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid")
+                ->execute([':sid' => $stid, ':tid' => $tid]);
+            $dbh->prepare("UPDATE tblstudents SET primary_tutor_id = NULL WHERE StudentId = :sid AND primary_tutor_id = :tid")
+                ->execute([':sid' => $stid, ':tid' => $tid]);
+            $msg = "Tutor desvinculado correctamente.";
+        }
+    }
+
+    // Agregar tutor (POST + CSRF)
     if (isset($_POST['add_tutor'])) {
-        if ($_POST['tutor_option'] === 'create') {
-            $t_email = trim($_POST['tutor_email']);
-            $t_rel   = $_POST['relationship_type'];
-            $check = $dbh->prepare("SELECT id FROM admin WHERE UserName = :u");
-            $check->execute([':u' => $t_email]);
-            if ($check->rowCount() > 0) {
-                $error = "Ese correo ya existe. Usa la opción 'Tutor existente'.";
-            } else {
-                $raw_pass = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
-                $dbh->prepare("INSERT INTO admin (UserName, Password, role) VALUES(:u, :p, 'tutor')")
-                    ->execute([':u' => $t_email, ':p' => md5($raw_pass)]);
-                $new_tid = $dbh->lastInsertId();
-                $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
-                    ->execute([':sid' => $stid, ':tid' => $new_tid, ':rel' => $t_rel]);
-                $msg = "Tutor creado y vinculado. Credenciales — Usuario: <b>$t_email</b> | Contraseña: <b style='color:red'>$raw_pass</b>";
-            }
-        } elseif ($_POST['tutor_option'] === 'existing') {
-            $existing_tid = intval($_POST['existing_tutor_id']);
-            $t_rel = $_POST['relationship_type'];
-            $dup = $dbh->prepare("SELECT id FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid");
-            $dup->execute([':sid' => $stid, ':tid' => $existing_tid]);
-            if ($dup->rowCount() > 0) {
-                $error = "Ese tutor ya está vinculado a este estudiante.";
-            } else {
-                $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
-                    ->execute([':sid' => $stid, ':tid' => $existing_tid, ':rel' => $t_rel]);
-                $msg = "Tutor vinculado correctamente.";
+        if (!$csrf_valido) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } else {
+            $t_rel = $_POST['relationship_type'] ?? 'padre';
+            if (!in_array($t_rel, $relaciones_validas, true)) {
+                $error = "Selecciona una relación de tutor válida.";
+            } elseif (($_POST['tutor_option'] ?? '') === 'create') {
+                $t_email = trim($_POST['tutor_email'] ?? '');
+                if (!filter_var($t_email, FILTER_VALIDATE_EMAIL)) {
+                    $error = "El correo del tutor no es válido.";
+                } else {
+                    $check = $dbh->prepare("SELECT id FROM admin WHERE UserName = :u");
+                    $check->execute([':u' => $t_email]);
+                    if ($check->rowCount() > 0) {
+                        $error = "Ese correo ya existe. Usa la opción 'Tutor existente'.";
+                    } else {
+                        try {
+                            $raw_pass = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
+                            // bcrypt (el login acepta bcrypt y MD5 legacy)
+                            $dbh->prepare("INSERT INTO admin (UserName, Password, role) VALUES(:u, :p, 'tutor')")
+                                ->execute([':u' => $t_email, ':p' => password_hash($raw_pass, PASSWORD_DEFAULT)]);
+                            $new_tid = $dbh->lastInsertId();
+                            $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
+                                ->execute([':sid' => $stid, ':tid' => $new_tid, ':rel' => $t_rel]);
+                            $msg = "Tutor creado y vinculado correctamente.";
+                            $nueva_clave_tutor = ['email' => $t_email, 'pass' => $raw_pass];
+                        } catch (PDOException $e) {
+                            $error = "No se pudo crear el tutor. Intenta de nuevo.";
+                        }
+                    }
+                }
+            } elseif (($_POST['tutor_option'] ?? '') === 'existing') {
+                $existing_tid = intval($_POST['existing_tutor_id'] ?? 0);
+                if ($existing_tid < 1) {
+                    $error = "Selecciona un tutor válido.";
+                } else {
+                    $dup = $dbh->prepare("SELECT id FROM student_tutor WHERE StudentId = :sid AND TutorId = :tid");
+                    $dup->execute([':sid' => $stid, ':tid' => $existing_tid]);
+                    if ($dup->rowCount() > 0) {
+                        $error = "Ese tutor ya está vinculado a este estudiante.";
+                    } else {
+                        $dbh->prepare("INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact) VALUES(:sid,:tid,:rel,0)")
+                            ->execute([':sid' => $stid, ':tid' => $existing_tid, ':rel' => $t_rel]);
+                        $msg = "Tutor vinculado correctamente.";
+                    }
+                }
             }
         }
     }
 
     if (isset($_POST['submit'])) {
-        $studentname  = $_POST['fullanme'];
-        $studentemail = $_POST['emailid'];
-        $curp         = $_POST['curp'];
-        $status       = $_POST['status'];
-        $classid      = intval($_POST['classid']);
+        if (!$csrf_valido) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } else {
+            $studentname  = trim($_POST['fullname'] ?? '');
+            $studentemail = trim($_POST['emailid'] ?? '');
+            $curp         = trim($_POST['curp'] ?? '');
+            $status       = ($_POST['status'] ?? '1') === '0' ? 0 : 1;
+            $classid      = intval($_POST['classid'] ?? 0);
 
-        $sql = "UPDATE tblstudents
-                SET StudentName = :studentname, StudentEmail = :studentemail,
-                    CURP = :curp, Status = :status, ClassId = :classid
-                WHERE StudentId = :stid";
+            if ($studentname === '' || !filter_var($studentemail, FILTER_VALIDATE_EMAIL) || $classid < 1) {
+                $error = "Completa todos los campos correctamente (nombre, correo válido y grupo).";
+            } else {
+                try {
+                    $sql = "UPDATE tblstudents
+                            SET StudentName = :studentname, StudentEmail = :studentemail,
+                                Curp = :curp, Status = :status, ClassId = :classid
+                            WHERE StudentId = :stid";
 
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':studentname',  $studentname,  PDO::PARAM_STR);
-        $query->bindParam(':studentemail', $studentemail, PDO::PARAM_STR);
-        $query->bindParam(':curp',         $curp,         PDO::PARAM_STR);
-        $query->bindParam(':status',       $status,       PDO::PARAM_STR);
-        $query->bindParam(':classid',      $classid,      PDO::PARAM_INT);
-        $query->bindParam(':stid',         $stid,         PDO::PARAM_INT);
-        $query->execute();
+                    $query = $dbh->prepare($sql);
+                    $query->bindParam(':studentname',  $studentname,  PDO::PARAM_STR);
+                    $query->bindParam(':studentemail', $studentemail, PDO::PARAM_STR);
+                    $query->bindParam(':curp',         $curp,         PDO::PARAM_STR);
+                    $query->bindParam(':status',       $status,       PDO::PARAM_INT);
+                    $query->bindParam(':classid',      $classid,      PDO::PARAM_INT);
+                    $query->bindParam(':stid',         $stid,         PDO::PARAM_INT);
+                    $query->execute();
 
-        $msg = "Información de estudiante actualizada correctamente";
+                    $msg = "Información de estudiante actualizada correctamente.";
+                } catch (PDOException $e) {
+                    if ($e->getCode() == 23000) {
+                        $error = "Ya existe otro estudiante con ese correo electrónico.";
+                    } else {
+                        $error = "No se pudieron guardar los cambios. Intenta de nuevo.";
+                    }
+                }
+            }
+        }
     }
 ?>
 
@@ -135,13 +195,23 @@ if (strlen($_SESSION['alogin']) == "") {
                                     </div>
                                 <?php } ?>
 
+                                <?php if ($nueva_clave_tutor) { ?>
+                                    <div class="alert alert-warning" role="alert">
+                                        <strong>Credenciales del nuevo tutor:</strong><br>
+                                        Usuario: <b><?php echo htmlentities($nueva_clave_tutor['email']); ?></b> |
+                                        Contraseña: <code style="color:#b91c1c;"><?php echo htmlentities($nueva_clave_tutor['pass']); ?></code>
+                                        <br><small>Anótala y entrégala al tutor. No se volverá a mostrar.</small>
+                                    </div>
+                                <?php } ?>
+
                                 <!-- Formulario de edición del estudiante -->
                                 <form class="form-horizontal" method="post">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                     <?php
                                     // Consulta para obtener los datos actuales del estudiante
-                                    $sql = "SELECT StudentName, RollId, RegDate, StudentId, Status, StudentEmail, CURP, ClassId, ClassName, Section 
-                                            FROM tblstudents 
-                                            JOIN tblclasses ON tblclasses.id = tblstudents.ClassId 
+                                    $sql = "SELECT StudentName, RollId, RegDate, StudentId, Status, StudentEmail, Curp, ClassId, ClassName, Section
+                                            FROM tblstudents
+                                            JOIN tblclasses ON tblclasses.id = tblstudents.ClassId
                                             WHERE StudentId = :stid";
 
                                     // Prepara y ejecuta la consulta
@@ -159,7 +229,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                         <div class="form-group">
                                             <label class="col-sm-2 control-label">Nombre Completo</label>
                                             <div class="col-sm-10">
-                                                <input type="text" name="fullanme" class="form-control" value="<?php echo htmlentities($result->StudentName); ?>" required>
+                                                <input type="text" name="fullname" class="form-control" value="<?php echo htmlentities($result->StudentName); ?>" required>
                                             </div>
                                         </div>
 
@@ -175,7 +245,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                         <div class="form-group">
                                             <label class="col-sm-2 control-label">CURP</label>
                                             <div class="col-sm-10">
-                                                <input type="text" name="curp" class="form-control" maxlength="18" value="<?php echo htmlentities($result->CURP); ?>" required>
+                                                <input type="text" name="curp" class="form-control" maxlength="18" value="<?php echo htmlentities($result->Curp); ?>" required>
                                             </div>
                                         </div>
 
@@ -247,11 +317,14 @@ if (strlen($_SESSION['alogin']) == "") {
                                             <td><?php echo ucfirst(htmlentities($t->RelationshipType)); ?></td>
                                             <td><?php echo $t->PrimaryContact ? '<span class="label label-success">Sí</span>' : 'No'; ?></td>
                                             <td>
-                                                <a href="edit-student.php?stid=<?php echo $stid; ?>&remove_tutor=<?php echo $t->TutorId; ?>"
-                                                   class="btn btn-danger btn-xs"
-                                                   onclick="return confirm('¿Quitar a <?php echo htmlspecialchars($t->UserName, ENT_QUOTES); ?> como tutor?');">
-                                                    <i class="fa fa-trash"></i> Quitar
-                                                </a>
+                                                <form method="post" style="display:inline;"
+                                                      onsubmit="return confirm('¿Quitar a <?php echo htmlspecialchars($t->UserName, ENT_QUOTES); ?> como tutor?');">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                    <input type="hidden" name="remove_tutor" value="<?php echo (int)$t->TutorId; ?>">
+                                                    <button type="submit" class="btn btn-danger btn-xs">
+                                                        <i class="fa fa-trash"></i> Quitar
+                                                    </button>
+                                                </form>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -263,6 +336,7 @@ if (strlen($_SESSION['alogin']) == "") {
 
                                 <!-- Formulario para agregar tutor -->
                                 <form method="post">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                     <h6><i class="fa fa-plus"></i> Agregar Tutor</h6>
                                     <div class="form-group">
                                         <label>
@@ -285,9 +359,8 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <select name="relationship_type" class="form-control">
                                                     <option value="padre">Padre</option>
                                                     <option value="madre">Madre</option>
-                                                    <option value="tutor">Tutor</option>
+                                                    <option value="tutor_legal">Tutor Legal</option>
                                                     <option value="abuelo">Abuelo/a</option>
-                                                    <option value="otro">Otro</option>
                                                 </select>
                                             </div>
                                         </div>
@@ -313,9 +386,8 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <select name="relationship_type" class="form-control">
                                                     <option value="padre">Padre</option>
                                                     <option value="madre">Madre</option>
-                                                    <option value="tutor">Tutor</option>
+                                                    <option value="tutor_legal">Tutor Legal</option>
                                                     <option value="abuelo">Abuelo/a</option>
-                                                    <option value="otro">Otro</option>
                                                 </select>
                                             </div>
                                         </div>

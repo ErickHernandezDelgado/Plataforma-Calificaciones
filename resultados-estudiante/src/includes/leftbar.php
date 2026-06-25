@@ -9,7 +9,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
 ?>
 
 <!-- Menú lateral izquierdo exclusivo para el rol de administrador -->
-<div class="left-sidebar box-shadow" style="background-color: #0F9B3A;">
+<div class="left-sidebar box-shadow admin-sidebar">
     <div class="sidebar-content">
         <div class="sidebar-nav">
             <ul class="side-nav color-gray">

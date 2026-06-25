@@ -1,45 +1,76 @@
 <?php
 session_start();
-error_reporting(E_ALL); 
+error_reporting(0);
+ini_set('display_errors', 0);
 include(__DIR__ . '/includes/config.php');
 
-if (strlen($_SESSION['alogin']) == "") {
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
     exit;
 } else {
-    // --- LÓGICA DE REGENERACIÓN DE CONTRASEÑA ---
-    if (isset($_GET['reset_tutor_id'])) {
-        $tutor_id = intval($_GET['reset_tutor_id']);
-        $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        $new_raw_pass = substr(str_shuffle($chars), 0, 8);
-        $new_md5_pass = md5($new_raw_pass);
+    $msg = '';
+    $error = '';
+    $nueva_clave_tutor = '';
 
-        $sql_update = "UPDATE admin SET Password = :pass WHERE id = :id AND role = 'tutor'";
-        $query_update = $dbh->prepare($sql_update);
-        $query_update->bindParam(':pass', $new_md5_pass, PDO::PARAM_STR);
-        $query_update->bindParam(':id', $tutor_id, PDO::PARAM_INT);
-        
-        if ($query_update->execute()) {
-            $msg = "Nueva contraseña generada para el tutor: " . $new_raw_pass;
+    // Genera un token CSRF para las acciones POST destructivas
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    // Valida CSRF en cualquier POST con acción destructiva
+    $csrf_ok = !($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']))
+        || (isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']));
+
+    // --- LÓGICA DE REGENERACIÓN DE CONTRASEÑA (POST + CSRF) ---
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'reset_tutor') {
+        if (!$csrf_ok) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
         } else {
-            $error = "No se pudo actualizar la contraseña.";
+            $tutor_id = intval($_POST['tutor_id'] ?? 0);
+            $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            $new_raw_pass = substr(str_shuffle($chars), 0, 8);
+            // bcrypt (el login acepta bcrypt y MD5 legacy; no afecta cuentas existentes)
+            $new_hash_pass = password_hash($new_raw_pass, PASSWORD_DEFAULT);
+
+            $sql_update = "UPDATE admin SET Password = :pass WHERE id = :id AND role = 'tutor'";
+            $query_update = $dbh->prepare($sql_update);
+            $query_update->bindParam(':pass', $new_hash_pass, PDO::PARAM_STR);
+            $query_update->bindParam(':id', $tutor_id, PDO::PARAM_INT);
+
+            if ($query_update->execute() && $query_update->rowCount() > 0) {
+                $msg = "Nueva contraseña generada para el tutor.";
+                $nueva_clave_tutor = $new_raw_pass;
+            } else {
+                $error = "No se pudo actualizar la contraseña del tutor.";
+            }
         }
     }
 
-    // --- LÓGICA DE ELIMINACIÓN DE ESTUDIANTE (Agregado por Auditoría) ---
-    if (isset($_GET['del_stid'])) {
-        $stid = intval($_GET['del_stid']);
-        
-        // Se recomienda que en la BD la relación tenga ON DELETE CASCADE 
-        // para borrar calificaciones automáticamente, si no, se borra solo al alumno.
-        $sql_del = "DELETE FROM tblstudents WHERE StudentId = :id";
-        $query_del = $dbh->prepare($sql_del);
-        $query_del->bindParam(':id', $stid, PDO::PARAM_INT);
-        
-        if ($query_del->execute()) {
-            $msg = "Estudiante eliminado correctamente del sistema.";
+    // --- LÓGICA DE ELIMINACIÓN DE ESTUDIANTE (POST + CSRF, bloquea si tiene calificaciones) ---
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'del_student') {
+        if (!$csrf_ok) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
         } else {
-            $error = "Error al intentar eliminar el registro.";
+            $stid = intval($_POST['stid'] ?? 0);
+
+            // Bloquea el borrado si el alumno tiene calificaciones registradas
+            $chkRes = $dbh->prepare("SELECT COUNT(*) FROM tblresult WHERE StudentId = :id");
+            $chkRes->bindParam(':id', $stid, PDO::PARAM_INT);
+            $chkRes->execute();
+            $totalCalif = (int) $chkRes->fetchColumn();
+
+            if ($totalCalif > 0) {
+                $error = "No se puede eliminar al estudiante porque tiene {$totalCalif} calificación(es) registrada(s). Desasígnalo de su grupo primero.";
+            } else {
+                $sql_del = "DELETE FROM tblstudents WHERE StudentId = :id";
+                $query_del = $dbh->prepare($sql_del);
+                $query_del->bindParam(':id', $stid, PDO::PARAM_INT);
+                if ($query_del->execute()) {
+                    $msg = "Estudiante eliminado correctamente del sistema.";
+                } else {
+                    $error = "Error al intentar eliminar el registro.";
+                }
+            }
         }
     }
 
@@ -85,8 +116,8 @@ if (strlen($_SESSION['alogin']) == "") {
                                         <select name="academic_year" class="form-control" onchange="this.form.submit()">
                                             <option value="">Todos los registros</option>
                                             <?php foreach ($available_years as $year): ?>
-                                                <option value="<?php echo $year['AcademicYear']; ?>" <?php echo ($selected_year == $year['AcademicYear']) ? 'selected' : ''; ?>>
-                                                    Ciclo <?php echo $year['AcademicYear']; ?>
+                                                <option value="<?php echo htmlspecialchars($year['AcademicYear'], ENT_QUOTES); ?>" <?php echo ($selected_year == $year['AcademicYear']) ? 'selected' : ''; ?>>
+                                                    Ciclo <?php echo htmlentities($year['AcademicYear']); ?>
                                                 </option>
                                             <?php endforeach; ?>
                                         </select>
@@ -95,15 +126,22 @@ if (strlen($_SESSION['alogin']) == "") {
                             </div>
 
                             <div class="panel-body p-20">
-                                <?php if(isset($msg) && $msg != ""){ ?>
+                                <?php if($msg != ""){ ?>
                                     <div class="alert alert-success">
-                                        <strong><i class="fa fa-check-circle"></i> ÉXITO:</strong> <?php echo $msg; ?>
+                                        <strong><i class="fa fa-check-circle"></i> ÉXITO:</strong> <?php echo htmlentities($msg); ?>
                                     </div>
                                 <?php } ?>
 
-                                <?php if(isset($error) && $error != ""){ ?>
+                                <?php if($nueva_clave_tutor != ""){ ?>
+                                    <div class="alert alert-warning">
+                                        <strong>Nueva contraseña del tutor:</strong> <code><?php echo htmlentities($nueva_clave_tutor); ?></code>
+                                        <br><small>Anótala y entrégala al tutor. No se volverá a mostrar.</small>
+                                    </div>
+                                <?php } ?>
+
+                                <?php if($error != ""){ ?>
                                     <div class="alert alert-danger">
-                                        <strong><i class="fa fa-times-circle"></i> ERROR:</strong> <?php echo $error; ?>
+                                        <strong><i class="fa fa-times-circle"></i> ERROR:</strong> <?php echo htmlentities($error); ?>
                                     </div>
                                 <?php } ?>
 
@@ -147,7 +185,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                                         <?php if ($result->TutorEmail) { ?>
                                                             <div style="font-size: 11px; line-height: 1.4;">
                                                                 <i class="fa fa-envelope-o text-primary"></i> <?php echo htmlentities($result->TutorEmail); ?><br>
-                                                                <i class="fa fa-lock text-muted"></i> <code>MD5 Hash Active</code>
+                                                                <i class="fa fa-lock text-muted"></i> <code>Acceso activo</code>
                                                             </div>
                                                         <?php } else { ?>
                                                             <span class="text-muted small italic">Sin tutor</span>
@@ -164,20 +202,26 @@ if (strlen($_SESSION['alogin']) == "") {
                                                         </a>
 
                                                         <?php if ($result->TutorEmail) { ?>
-                                                            <a href="manage-students.php?reset_tutor_id=<?php echo $result->TutorId; ?>" 
-                                                               class="btn btn-reset btn-action" 
-                                                               title="Regenerar Contraseña"
-                                                               onclick="return confirm('¿Estás seguro de generar una nueva clave para este tutor?')">
-                                                                <i class="fa fa-refresh"></i>
-                                                            </a>
+                                                            <form method="post" action="manage-students.php" style="display:inline;"
+                                                                  onsubmit="return confirm('¿Estás seguro de generar una nueva clave para este tutor?')">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                                <input type="hidden" name="accion" value="reset_tutor">
+                                                                <input type="hidden" name="tutor_id" value="<?php echo (int)$result->TutorId; ?>">
+                                                                <button type="submit" class="btn btn-reset btn-action" title="Regenerar Contraseña">
+                                                                    <i class="fa fa-refresh"></i>
+                                                                </button>
+                                                            </form>
                                                         <?php } ?>
 
-                                                        <a href="manage-students.php?del_stid=<?php echo $result->StudentId; ?>" 
-                                                           class="btn btn-delete btn-action" 
-                                                           title="Eliminar Estudiante"
-                                                           onclick="return confirm('¿Realmente deseas eliminar a este estudiante? Se borrará su historial académico y esta acción no se puede deshacer.')">
-                                                            <i class="fa fa-trash"></i>
-                                                        </a>
+                                                        <form method="post" action="manage-students.php" style="display:inline;"
+                                                              onsubmit="return confirm('¿Realmente deseas eliminar a este estudiante? Si tiene calificaciones registradas, el sistema lo impedirá. Esta acción no se puede deshacer.')">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                            <input type="hidden" name="accion" value="del_student">
+                                                            <input type="hidden" name="stid" value="<?php echo (int)$result->StudentId; ?>">
+                                                            <button type="submit" class="btn btn-delete btn-action" title="Eliminar Estudiante">
+                                                                <i class="fa fa-trash"></i>
+                                                            </button>
+                                                        </form>
                                                     </td>
                                                 </tr>
                                             <?php } ?>

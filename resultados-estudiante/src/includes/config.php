@@ -17,10 +17,16 @@
  */
 
 // Cargar archivo .env si existe (para desarrollo local)
+// INI_SCANNER_RAW evita que parse_ini_file interprete #, ; o comillas dentro de valores
+// como la contraseña (DB_PASS), lo que rompería la conexión silenciosamente.
 if (file_exists(__DIR__ . '/../../.env')) {
-    $env_values = parse_ini_file(__DIR__ . '/../../.env');
-    foreach ($env_values as $key => $value) {
-        putenv("$key=$value");
+    $env_values = parse_ini_file(__DIR__ . '/../../.env', false, INI_SCANNER_RAW);
+    if (is_array($env_values)) {
+        foreach ($env_values as $key => $value) {
+            putenv("$key=$value");
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+        }
     }
 }
 

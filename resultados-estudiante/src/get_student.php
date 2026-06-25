@@ -93,7 +93,7 @@ if (!empty($_POST["classid1"])) {
                         <p style="margin-top:7px; font-weight:600;">' . htmlentities($subject['SubjectName']) . '</p>
                     </div>
                     <div class="col-md-4">
-                        <input type="number" name="marks[]" class="form-control" placeholder="0-10" min="0" max="10" step="0.1" required>
+                        <input type="number" name="marks[]" class="form-control" placeholder="0-100" min="0" max="100" step="1" required>
                     </div>
                   </div>';
         }
@@ -109,9 +109,15 @@ if (!empty($_POST["studclass"])) {
     if(count($data) >= 3) {
         $cid = intval($data[0]);
         $sid = intval($data[1]);
-        $term = intval($data[2]);  // término/trimestre (1, 2, 3, 4, 5)
+        // El JS envía el período como "type|number" (1=Bimestre, 2=Trimestre).
+        // Se compara por el texto exacto de la columna Trimestre para NO confundir
+        // "Bimestre 1" con "Trimestre 1" (ambos tendrían term=1).
+        $periodo_parts = explode("|", $data[2]);
+        $p_type = intval($periodo_parts[0] ?? 0);
+        $p_num  = intval($periodo_parts[1] ?? 0);
+        $trimestre_text = ($p_type == 1) ? "Bimestre " . $p_num : "Trimestre " . $p_num;
 
-        // Buscar en tblresult usando StudentId, ClassId, term Y el idioma de la materia
+        // Buscar en tblresult usando StudentId, ClassId, Trimestre (texto) Y el idioma de la materia
         $dup_role      = $_SESSION['role']      ?? null;
         $dup_teacherid = $_SESSION['teacherid'] ?? null;
 
@@ -119,7 +125,7 @@ if (!empty($_POST["studclass"])) {
             // Maestro: solo verifica duplicados en sus materias asignadas
             $sql = "SELECT tr.id FROM tblresult tr
                     JOIN tblsubjects ts ON ts.id = tr.SubjectId
-                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
+                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.Trimestre = :trim
                     AND ts.Language = :lang
                     AND tr.SubjectId IN (
                         SELECT SubjectId FROM tblteacher_subject
@@ -129,15 +135,15 @@ if (!empty($_POST["studclass"])) {
         } else {
             $sql = "SELECT tr.id FROM tblresult tr
                     JOIN tblsubjects ts ON ts.id = tr.SubjectId
-                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.term = :term
+                    WHERE tr.StudentId = :sid AND tr.ClassId = :cid AND tr.Trimestre = :trim
                     AND ts.Language = :lang
                     LIMIT 1";
         }
         $query = $dbh->prepare($sql);
         if ($dup_role === 'teacher' && $dup_teacherid) {
-            $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang, ':tid' => $dup_teacherid]);
+            $query->execute([':sid' => $sid, ':cid' => $cid, ':trim' => $trimestre_text, ':lang' => $lang, ':tid' => $dup_teacherid]);
         } else {
-            $query->execute([':sid' => $sid, ':cid' => $cid, ':term' => $term, ':lang' => $lang]);
+            $query->execute([':sid' => $sid, ':cid' => $cid, ':trim' => $trimestre_text, ':lang' => $lang]);
         }
 
         if ($query->rowCount() > 0) {

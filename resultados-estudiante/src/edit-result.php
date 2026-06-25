@@ -5,6 +5,17 @@
  */
 include(__DIR__ . '/includes/check-login.php');
 
+// edit-result es solo para administradores (usa el panel de admin).
+if (($_SESSION['role'] ?? '') !== 'admin') {
+    header("Location: index.php");
+    exit;
+}
+
+// Genera token CSRF para la actualización de calificaciones
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'es';
 
 // Recibimos el ID de la calificación específica
@@ -35,26 +46,43 @@ $error = "";
 
 // PROCESAR ACTUALIZACIÓN
 if (isset($_POST['submit'])) {
-    $rowids = $_POST['id'];     // IDs únicos de la tabla tblresult
-    $marks = $_POST['marks'];   // Nuevas calificaciones
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } else {
+        $rowids = $_POST['id'] ?? [];     // IDs únicos de la tabla tblresult
+        $marks = $_POST['marks'] ?? [];   // Nuevas calificaciones
 
-    try {
-        $dbh->beginTransaction();
-        foreach ($rowids as $count => $id) {
-            $mrks = $marks[$count];
-            $iid = $id;
+        if (!is_array($rowids) || !is_array($marks)) {
+            $error = "Datos de calificaciones no válidos.";
+        } else {
+            $fuera_rango = false;
+            try {
+                $dbh->beginTransaction();
+                foreach ($rowids as $count => $id) {
+                    $raw = $marks[$count] ?? '';
+                    // Validación de rango: entero 0-100
+                    if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {
+                        $fuera_rango = true;
+                        continue;
+                    }
+                    $mrks = intval($raw);
+                    $iid = intval($id);
 
-            $sql = "UPDATE tblresult SET marks = :mrks WHERE id = :iid";
-            $query = $dbh->prepare($sql);
-            $query->bindParam(':mrks', $mrks, PDO::PARAM_STR);
-            $query->bindParam(':iid', $iid, PDO::PARAM_INT);
-            $query->execute();
+                    $sql = "UPDATE tblresult SET marks = :mrks WHERE id = :iid";
+                    $query = $dbh->prepare($sql);
+                    $query->bindParam(':mrks', $mrks, PDO::PARAM_INT);
+                    $query->bindParam(':iid', $iid, PDO::PARAM_INT);
+                    $query->execute();
+                }
+                $dbh->commit();
+                $msg = $fuera_rango
+                    ? "Calificaciones actualizadas. Algunas estaban fuera del rango 0-100 y no se guardaron."
+                    : "Calificaciones del periodo actualizadas con éxito.";
+            } catch (PDOException $e) {
+                if ($dbh->inTransaction()) $dbh->rollBack();
+                $error = "Error al actualizar las calificaciones. Intenta de nuevo.";
+            }
         }
-        $dbh->commit();
-        $msg = "Calificaciones del periodo actualizadas con éxito";
-    } catch (Exception $e) {
-        $dbh->rollBack();
-        $error = "Error al actualizar: " . $e->getMessage();
     }
 }
 ?>
@@ -357,9 +385,12 @@ if (isset($_POST['submit'])) {
                                         <div class="panel-body">
                                             <?php if($msg){ ?>
                                                 <div class="alert alert-success"><strong>Éxito!</strong> <?php echo htmlentities($msg); ?></div>
+                                            <?php } elseif($error){ ?>
+                                                <div class="alert alert-danger"><strong>Error!</strong> <?php echo htmlentities($error); ?></div>
                                             <?php } ?>
-                                            
+
                                             <form class="form-horizontal" method="post">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                                 <?php
                                                 // CORRECCIÓN: Usar vista vw_result_with_terms y tabla tblsubjects
                                                 $sql = "SELECT sub.SubjectName, vr.marks, vr.id as resultid, vr.term_name
@@ -387,7 +418,7 @@ if (isset($_POST['submit'])) {
                                                             </label>
                                                             <div class="col-sm-6">
                                                                 <input type="hidden" name="id[]" value="<?php echo $result->resultid; ?>">
-                                                                <input type="number" step="0.01" name="marks[]" class="form-control" 
+                                                                <input type="number" step="1" name="marks[]" class="form-control"
                                                                        value="<?php echo htmlentities($result->marks); ?>" min="0" max="100" required>
                                                             </div>
                                                         </div>

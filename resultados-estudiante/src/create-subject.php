@@ -4,39 +4,59 @@ session_start();
 error_reporting(0);
 include(__DIR__ . '/includes/config.php'); // Conexión a la base de datos
 
-// Verifica si el usuario está logueado; si no, lo redirige al login
-if (strlen($_SESSION['alogin']) == "") {
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
+    // Inicializa los mensajes para evitar variables indefinidas en la vista
+    $msg = '';
+    $error = '';
+
     // Si se envió el formulario
     if (isset($_POST['submit'])) {
         $subjectname = trim($_POST['subjectname']);
+        $language = $_POST['language'] ?? '';
 
-        // Generar prefijo: primeras 3 letras del nombre en mayúsculas (solo letras)
-        $prefix = strtoupper(preg_replace('/[^a-zA-Z]/', '', $subjectname));
-        $prefix = substr($prefix, 0, 3);
-
-        // Buscar el siguiente número secuencial para ese prefijo
-        $stmt = $dbh->prepare("SELECT COUNT(*) FROM tblsubjects WHERE SubjectCode LIKE :prefix");
-        $stmt->execute([':prefix' => $prefix . '-%']);
-        $count = $stmt->fetchColumn();
-        $subjectcode = $prefix . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
-
-        $language = $_POST['language'];
-
-        $sql = "INSERT INTO tblsubjects(SubjectName, SubjectCode, Language) VALUES(:subjectname, :subjectcode, :language)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
-        $query->bindParam(':subjectcode', $subjectcode, PDO::PARAM_STR);
-        $query->bindParam(':language',    $language,    PDO::PARAM_STR);
-        $query->execute();
-
-        $lastInsertId = $dbh->lastInsertId();
-        if ($lastInsertId) {
-            $lang_label = ($language === 'en') ? 'Inglés' : 'Español';
-            $msg = "Materia creada correctamente (Código: $subjectcode | Idioma: $lang_label)";
+        // Validación del lado servidor
+        if ($subjectname === '') {
+            $error = "El nombre de la materia es obligatorio.";
+        } elseif (!in_array($language, ['es', 'en'], true)) {
+            $error = "Selecciona un idioma válido.";
         } else {
-            $error = "Hubo un fallo, reintenta";
+            // Generar prefijo: primeras 3 letras del nombre en mayúsculas (solo letras)
+            $prefix = strtoupper(preg_replace('/[^a-zA-Z]/', '', $subjectname));
+            $prefix = substr($prefix, 0, 3);
+
+            // Buscar el siguiente número secuencial para ese prefijo
+            $stmt = $dbh->prepare("SELECT COUNT(*) FROM tblsubjects WHERE SubjectCode LIKE :prefix");
+            $stmt->execute([':prefix' => $prefix . '-%']);
+            $count = $stmt->fetchColumn();
+            $subjectcode = $prefix . '-' . str_pad($count + 1, 3, '0', STR_PAD_LEFT);
+
+            try {
+                $sql = "INSERT INTO tblsubjects(SubjectName, SubjectCode, Language) VALUES(:subjectname, :subjectcode, :language)";
+                $query = $dbh->prepare($sql);
+                $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
+                $query->bindParam(':subjectcode', $subjectcode, PDO::PARAM_STR);
+                $query->bindParam(':language',    $language,    PDO::PARAM_STR);
+                $query->execute();
+
+                $lastInsertId = $dbh->lastInsertId();
+                if ($lastInsertId) {
+                    $lang_label = ($language === 'en') ? 'Inglés' : 'Español';
+                    $msg = "Materia creada correctamente (Código: $subjectcode | Idioma: $lang_label)";
+                } else {
+                    $error = "Hubo un fallo, reintenta.";
+                }
+            } catch (PDOException $e) {
+                // 23000 = violación de restricción de integridad (UNIQUE SubjectCode)
+                if ($e->getCode() == 23000) {
+                    $error = "Ya existe una materia con un código similar. Cambia el nombre e inténtalo de nuevo.";
+                } else {
+                    $error = "Hubo un fallo, reintenta.";
+                }
+            }
         }
     }
 ?>

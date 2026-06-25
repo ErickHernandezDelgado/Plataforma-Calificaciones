@@ -3,8 +3,9 @@ session_start();
 error_reporting(0);
 include(__DIR__ . '/includes/config.php');
 
-if (strlen($_SESSION['alogin']) == "") {
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
 ?>
 
@@ -174,9 +175,6 @@ table.table thead th {
                                                         <td>
                                                             <a href="edit-teacher.php?tid=<?php echo $result->Id; ?>" class="btn btn-primary btn-sm btn-action">
                                                                 <i class="fa fa-edit"></i> Editar
-                                                            </a>
-                                                            <a href="assign-teacher-subject.php?teacherid=<?php echo $result->Id; ?>" class="btn btn-warning btn-sm btn-action">
-                                                                <i class="fa fa-plus"></i> Asignar
                                                             </a>
                                                         </td>
                                                     </tr>

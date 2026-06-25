@@ -3,41 +3,59 @@ session_start();
 error_reporting(0);
 include(__DIR__ . '/includes/config.php');
 
-if (strlen($_SESSION['alogin']) == "") {
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
 
-// Eliminar año si se recibe el parámetro
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $classId = $_GET['delete'];
+// Inicializa los mensajes para evitar variables indefinidas en la vista
+$msg = '';
+$error = '';
 
-    // Verificar dependencias antes de eliminar
-    $checks = [
-        'tblstudents'           => 'estudiantes inscritos',
-        'tblsubjectcombination' => 'materias asignadas',
-        'tblteacher_subject'    => 'docentes asignados',
-        'tblresult'             => 'calificaciones registradas',
-    ];
-    $blocking = [];
-    foreach ($checks as $table => $label) {
-        $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE ClassId = :id");
-        $chk->bindParam(':id', $classId, PDO::PARAM_INT);
-        $chk->execute();
-        if ($chk->fetchColumn() > 0) {
-            $blocking[] = $label;
-        }
-    }
+// Genera un token CSRF para proteger la eliminación (formulario POST)
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
-    if (!empty($blocking)) {
-        $error = " No se puede eliminar este año porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
+// Eliminar año: solo vía POST y con token CSRF válido
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif (!is_numeric($_POST['delete'])) {
+        $error = "Identificador de año no válido.";
     } else {
-        $sql = "DELETE FROM tblclasses WHERE id = :id";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':id', $classId, PDO::PARAM_INT);
-        if ($query->execute()) {
-            $msg = " Año eliminado correctamente.";
+        $classId = (int) $_POST['delete'];
+
+        // Verificar dependencias antes de eliminar.
+        // tblsubjectcombination se filtra con SubjectId IS NOT NULL porque puede
+        // contener filas corruptas con SubjectId NULL que no deben bloquear el borrado.
+        $checks = [
+            'tblstudents'           => ['label' => 'estudiantes inscritos',     'extra' => ''],
+            'tblsubjectcombination' => ['label' => 'materias asignadas',        'extra' => ' AND SubjectId IS NOT NULL'],
+            'tblteacher_subject'    => ['label' => 'docentes asignados',        'extra' => ''],
+            'tblresult'             => ['label' => 'calificaciones registradas','extra' => ''],
+        ];
+        $blocking = [];
+        foreach ($checks as $table => $info) {
+            $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE ClassId = :id" . $info['extra']);
+            $chk->bindParam(':id', $classId, PDO::PARAM_INT);
+            $chk->execute();
+            if ($chk->fetchColumn() > 0) {
+                $blocking[] = $info['label'];
+            }
+        }
+
+        if (!empty($blocking)) {
+            $error = "No se puede eliminar este año porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
         } else {
-            $error = " No se pudo eliminar el año. Intenta de nuevo.";
+            $sql = "DELETE FROM tblclasses WHERE id = :id";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':id', $classId, PDO::PARAM_INT);
+            if ($query->execute()) {
+                $msg = "Año eliminado correctamente.";
+            } else {
+                $error = "No se pudo eliminar el año. Intenta de nuevo.";
+            }
         }
     }
 }
@@ -97,7 +115,7 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                     <!-- Muestra mensaje de éxito si $msg está definido -->
                                     <?php if ($msg) { ?>
                                         <div class="alert alert-success left-icon-alert" role="alert">
-                                            <strong>Bien hecho</strong><?php echo htmlentities($msg); ?>
+                                            <strong>Bien hecho</strong> <?php echo htmlentities($msg); ?>
                                         </div>
 
                                     <!-- Muestra mensaje de error si $error está definido -->
@@ -136,7 +154,7 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                                 $cnt = 1;
 
                                                 // Si hay resultados, recorre cada uno para mostrarlos en la tabla
-                                                if ($query->rowCount() > 0) {
+                                                if (!empty($results)) {
                                                     foreach ($results as $result) { ?>
                                                         <tr>
                                                             <!-- Número consecutivo -->
@@ -159,11 +177,14 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                                                 <a href="class-setup.php?classid=<?php echo htmlentities($result->id); ?>" class="btn btn-info" title="Configurar grupo">
                                                                     <i class="fa fa-cogs"></i>
                                                                 </a>
-                                                                <a href="manage-classes.php?delete=<?php echo htmlentities($result->id); ?>"
-                                                                   class="btn btn-danger"
-                                                                   onclick="return confirm('¿Seguro que deseas eliminar el año <?php echo htmlspecialchars($result->ClassName . ' ' . $result->Section, ENT_QUOTES); ?>? Esta acción no se puede deshacer.');">
-                                                                    <i class="fa fa-trash" title="Eliminar"></i>
-                                                                </a>
+                                                                <form method="post" action="manage-classes.php" style="display:inline;"
+                                                                      onsubmit="return confirm('¿Seguro que deseas eliminar el año <?php echo htmlspecialchars($result->ClassName . ' ' . $result->Section, ENT_QUOTES); ?>? Esta acción no se puede deshacer.');">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                                    <input type="hidden" name="delete" value="<?php echo htmlentities($result->id); ?>">
+                                                                    <button type="submit" class="btn btn-danger" title="Eliminar">
+                                                                        <i class="fa fa-trash"></i>
+                                                                    </button>
+                                                                </form>
                                                             </td>
                                                         </tr>
                                                 <?php

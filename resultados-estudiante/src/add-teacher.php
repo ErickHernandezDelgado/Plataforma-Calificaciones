@@ -5,9 +5,16 @@
  */
 include(__DIR__ . '/includes/check-login.php');
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Verificación de rol admin (check-login.php solo valida sesión, no rol)
+if ($_SESSION['role'] !== 'admin') {
+    header("Location: index.php");
+    exit;
+}
+
+error_reporting(0);
+ini_set('display_errors', 0);
 $msg = ""; $error = "";
+$msg_teacher_email = ""; $msg_teacher_password = "";
 
 function generatePassword($length = 8) {
     $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$';
@@ -20,49 +27,65 @@ function generatePassword($length = 8) {
 
 // Procesar envío de formulario
 if (isset($_POST['submit'])) {
-    $teachername = $_POST['fullname'];
-    $teacheremail = $_POST['emailid'];
-    $gender = $_POST['gender'];
-    $dob = $_POST['dob'];
+    $teachername = trim($_POST['fullname'] ?? '');
+    $teacheremail = trim($_POST['emailid'] ?? '');
+    $gender = $_POST['gender'] ?? '';
+    $dob = $_POST['dob'] ?? '';
     $status = 1;
 
-    $password_plana = generatePassword(8);
-    $password_md5 = md5($password_plana);
+    // Validación del lado servidor
+    if ($teachername === '' || $teacheremail === '' || $dob === '') {
+        $error = "Completa todos los campos obligatorios.";
+    } elseif (!filter_var($teacheremail, FILTER_VALIDATE_EMAIL)) {
+        $error = "El correo electrónico no es válido.";
+    } elseif (!in_array($gender, ['Male', 'Female'], true)) {
+        $error = "Selecciona un género válido.";
+    } else {
+        // Genera la contraseña temporal y la cifra con bcrypt (password_hash).
+        // El login (index.php) acepta bcrypt y MD5 legacy, así que esto no afecta cuentas existentes.
+        $password_plana = generatePassword(8);
+        $password_hash = password_hash($password_plana, PASSWORD_DEFAULT);
 
-    try {
-        $dbh->beginTransaction(); 
-        $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, Status) VALUES(:teachername, :teacheremail, :gender, :dob, :status)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
-        $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
-        $query->bindParam(':gender', $gender, PDO::PARAM_STR);
-        $query->bindParam(':dob', $dob, PDO::PARAM_STR);
-        $query->bindParam(':status', $status, PDO::PARAM_INT);
-        $query->execute();
+        try {
+            $dbh->beginTransaction();
+            $sql = "INSERT INTO tblteachers(TeacherName, TeacherEmail, Gender, DOB, Status) VALUES(:teachername, :teacheremail, :gender, :dob, :status)";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':teachername', $teachername, PDO::PARAM_STR);
+            $query->bindParam(':teacheremail', $teacheremail, PDO::PARAM_STR);
+            $query->bindParam(':gender', $gender, PDO::PARAM_STR);
+            $query->bindParam(':dob', $dob, PDO::PARAM_STR);
+            $query->bindParam(':status', $status, PDO::PARAM_INT);
+            $query->execute();
 
-        $lastInsertId = $dbh->lastInsertId();
+            $lastInsertId = $dbh->lastInsertId();
 
-        if ($lastInsertId) {
-            $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) VALUES(:username, :password, :role, :teacher_id)";
-            $query_admin = $dbh->prepare($sql_admin);
-            $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
-            $query_admin->bindParam(':password', $password_md5, PDO::PARAM_STR);
-            $query_admin->bindValue(':role', 'teacher', PDO::PARAM_STR);
-            $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
-            
-            if ($query_admin->execute()) {
-                $dbh->commit(); 
-                $msg_teacher_email = $teacheremail;
-                $msg_teacher_password = $password_plana; 
-                $msg = "Docente agregado correctamente.";
+            if ($lastInsertId) {
+                $sql_admin = "INSERT INTO admin (UserName, Password, role, teacher_id) VALUES(:username, :password, :role, :teacher_id)";
+                $query_admin = $dbh->prepare($sql_admin);
+                $query_admin->bindParam(':username', $teacheremail, PDO::PARAM_STR);
+                $query_admin->bindParam(':password', $password_hash, PDO::PARAM_STR);
+                $query_admin->bindValue(':role', 'teacher', PDO::PARAM_STR);
+                $query_admin->bindParam(':teacher_id', $lastInsertId, PDO::PARAM_INT);
+
+                if ($query_admin->execute()) {
+                    $dbh->commit();
+                    $msg_teacher_email = $teacheremail;
+                    $msg_teacher_password = $password_plana;
+                    $msg = "Docente agregado correctamente.";
+                } else {
+                    $dbh->rollBack();
+                    $error = "Error al crear la cuenta.";
+                }
+            }
+        } catch (PDOException $e) {
+            $dbh->rollBack();
+            // 23000 = violación de integridad (email duplicado en tblteachers o admin)
+            if ($e->getCode() == 23000) {
+                $error = "Ya existe un docente o usuario registrado con ese correo electrónico.";
             } else {
-                $dbh->rollBack();
-                $error = "Error al crear la cuenta.";
+                $error = "No se pudo agregar el docente. Intenta de nuevo.";
             }
         }
-    } catch (Exception $e) {
-        $dbh->rollBack();
-        $error = "Error: " . $e->getMessage();
     }
 }
 ?>
@@ -139,11 +162,13 @@ if (isset($_POST['submit'])) {
                                         </div>
                                         <div class="panel-body p-20">
                                             <?php if($msg){ ?>
-                                                <div class="alert alert-success"><strong>Éxito:</strong> <?php echo $msg; ?></div>
+                                                <div class="alert alert-success"><strong>Éxito:</strong> <?php echo htmlentities($msg); ?></div>
                                                 <div class="well">
-                                                    <strong>Usuario:</strong> <?php echo $msg_teacher_email; ?><br>
-                                                    <strong>Contraseña:</strong> <code><?php echo $msg_teacher_password; ?></code>
+                                                    <strong>Usuario:</strong> <?php echo htmlentities($msg_teacher_email); ?><br>
+                                                    <strong>Contraseña:</strong> <code><?php echo htmlentities($msg_teacher_password); ?></code>
                                                 </div>
+                                            <?php } elseif($error){ ?>
+                                                <div class="alert alert-danger"><strong>Error:</strong> <?php echo htmlentities($error); ?></div>
                                             <?php } ?>
 
                                             <form method="post" class="row">

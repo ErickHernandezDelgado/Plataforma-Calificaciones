@@ -5,36 +5,80 @@
  */
 include(__DIR__ . '/includes/check-login.php');
 
+// Verificación de rol: pantalla compartida admin + docente.
+if (!in_array($_SESSION['role'] ?? '', ['admin', 'teacher'], true)) {
+    header("Location: index.php");
+    exit;
+}
+
 // Procesar actualización de calificaciones si se envía el formulario
 $msg = "";
 $error = "";
 
-if (isset($_POST['update_marks'])) {
-    $mark_ids = $_POST['mark_id'] ?? [];
-    $mark_values = $_POST['mark_value'] ?? [];
-    
-    try {
-        $dbh->beginTransaction();
-        
-        foreach ($mark_ids as $idx => $mark_id) {
-            $mark_value = intval($mark_values[$idx] ?? 0);
-            $mark_id = intval($mark_id);
-            
-            $sql = "UPDATE tblresult SET marks = :marks WHERE id = :id";
-            $stmt = $dbh->prepare($sql);
-            $stmt->execute([':marks' => $mark_value, ':id' => $mark_id]);
-        }
-        
-        $dbh->commit();
-        $msg = "✅ Calificaciones actualizadas correctamente.";
-    } catch (Exception $e) {
-        $dbh->rollBack();
-        $error = "❌ Error al actualizar: " . $e->getMessage();
-    }
-}
-
 $teacherId = $_SESSION['teacherid'] ?? null;
 $teacherRole = $_SESSION['role'] ?? null;
+
+// Genera un token CSRF para proteger la actualización de calificaciones
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+if (isset($_POST['update_marks'])) {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } else {
+        $mark_ids = $_POST['mark_id'] ?? [];
+        $mark_values = $_POST['mark_value'] ?? [];
+        $fuera_rango = false;
+
+        // Si es docente, solo puede actualizar notas de SUS materias.
+        // Se prepara un verificador de propiedad por mark_id.
+        $ownCheck = null;
+        if ($teacherRole === 'teacher' && $teacherId) {
+            $ownCheck = $dbh->prepare(
+                "SELECT COUNT(*) FROM tblresult r
+                 WHERE r.id = :id
+                 AND r.SubjectId IN (SELECT SubjectId FROM tblteacher_subject WHERE TeacherId = :tid AND ClassId = r.ClassId)"
+            );
+        }
+
+        try {
+            $dbh->beginTransaction();
+
+            foreach ($mark_ids as $idx => $mark_id) {
+                $mark_id = intval($mark_id);
+                $raw = $mark_values[$idx] ?? '';
+
+                // Validación de rango: la calificación debe ser un entero 0-100
+                if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {
+                    $fuera_rango = true;
+                    continue;
+                }
+                $mark_value = intval($raw);
+
+                // Un docente solo edita notas de sus materias
+                if ($ownCheck !== null) {
+                    $ownCheck->execute([':id' => $mark_id, ':tid' => $teacherId]);
+                    if ((int)$ownCheck->fetchColumn() === 0) {
+                        continue; // No es suya: se omite
+                    }
+                }
+
+                $sql = "UPDATE tblresult SET marks = :marks WHERE id = :id";
+                $stmt = $dbh->prepare($sql);
+                $stmt->execute([':marks' => $mark_value, ':id' => $mark_id]);
+            }
+
+            $dbh->commit();
+            $msg = $fuera_rango
+                ? "Calificaciones actualizadas. Algunas estaban fuera del rango 0-100 y no se guardaron."
+                : "Calificaciones actualizadas correctamente.";
+        } catch (PDOException $e) {
+            if ($dbh->inTransaction()) $dbh->rollBack();
+            $error = "Error al actualizar las calificaciones. Intenta de nuevo.";
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">

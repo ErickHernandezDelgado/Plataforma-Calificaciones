@@ -8,89 +8,109 @@ error_reporting(0);
 // Incluye el archivo de configuración con la conexión a la base de datos
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el usuario ha iniciado sesión (variable de sesión 'alogin')
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige a la página de login
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
+    $error = "";
+
+    // Genera un token CSRF para proteger el formulario
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
     // Si el formulario ha sido enviado
     if (isset($_POST['submit'])) {
-        // Obtiene los datos del formulario
-        $ntitle = $_POST['noticetitle']; // Título del comunicado
-        $ndetails = $_POST['noticedetails']; // Detalle o contenido del comunicado
-        $audience_type = $_POST['audience_type']; // Tipo de audiencia: all, class, selected
-        $class_id = (isset($_POST['class_id']) && $_POST['class_id'] != '') ? $_POST['class_id'] : NULL;
+        // Obtiene y sanea los datos del formulario
+        $ntitle = trim($_POST['noticetitle'] ?? '');
+        $ndetails = trim($_POST['noticedetails'] ?? '');
+        $audience_type = $_POST['audience_type'] ?? '';
+        $class_id = (isset($_POST['class_id']) && $_POST['class_id'] != '') ? intval($_POST['class_id']) : NULL;
         $selected_students = (isset($_POST['selected_students']) && is_array($_POST['selected_students'])) ? $_POST['selected_students'] : [];
 
-        // Obtener ID del administrador actual (para registro de creación)
-        $admin_id = NULL;
-        $sql_admin = "SELECT id FROM admin WHERE UserName = :username";
-        $query_admin = $dbh->prepare($sql_admin);
-        $query_admin->bindParam(':username', $_SESSION['alogin'], PDO::PARAM_STR);
-        $query_admin->execute();
-        $admin_result = $query_admin->fetch(PDO::FETCH_ASSOC);
-        if ($admin_result) {
-            $admin_id = $admin_result['id'];
-        }
-
-        // Prepara la consulta SQL para insertar un nuevo comunicado
-        $sql = "INSERT INTO tblnotice(noticeTitle, noticeDetails, audience_type, class_id, created_by, is_active) 
-                VALUES(:ntitle, :ndetails, :audience_type, :class_id, :created_by, 1)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':ntitle', $ntitle, PDO::PARAM_STR);
-        $query->bindParam(':ndetails', $ndetails, PDO::PARAM_STR);
-        $query->bindParam(':audience_type', $audience_type, PDO::PARAM_STR);
-        $query->bindParam(':class_id', $class_id, PDO::PARAM_INT);
-        $query->bindParam(':created_by', $admin_id, PDO::PARAM_INT);
-        $query->execute();
-
-        // Obtiene el ID del último registro insertado
-        $lastInsertId = $dbh->lastInsertId();
-
-        // Verifica si el insert fue exitoso
-        if ($lastInsertId) {
-            // Ahora inserta en la tabla notice_student según el tipo de audiencia
-            $students_to_notify = [];
-
-            if ($audience_type == 'all') {
-                // Obtener todos los estudiantes
-                $sql_students = "SELECT StudentId FROM tblstudents WHERE Status = 1";
-                $query_students = $dbh->prepare($sql_students);
-                $query_students->execute();
-                $students_to_notify = $query_students->fetchAll(PDO::FETCH_COLUMN);
-
-            } elseif ($audience_type == 'class' && $class_id) {
-                // Obtener estudiantes de la clase seleccionada
-                $sql_students = "SELECT StudentId FROM tblstudents WHERE ClassId = :class_id AND Status = 1";
-                $query_students = $dbh->prepare($sql_students);
-                $query_students->bindParam(':class_id', $class_id, PDO::PARAM_INT);
-                $query_students->execute();
-                $students_to_notify = $query_students->fetchAll(PDO::FETCH_COLUMN);
-
-            } elseif ($audience_type == 'selected' && !empty($selected_students)) {
-                // Usar los estudiantes específicamente seleccionados
-                $students_to_notify = $selected_students;
-            }
-
-            // Insertar en notice_student para cada estudiante
-            if (!empty($students_to_notify)) {
-                $sql_ns = "INSERT INTO notice_student(notice_id, student_id, is_viewed, created_date) 
-                           VALUES(:notice_id, :student_id, 0, NOW())";
-                $query_ns = $dbh->prepare($sql_ns);
-
-                foreach ($students_to_notify as $student_id) {
-                    $query_ns->bindParam(':notice_id', $lastInsertId, PDO::PARAM_INT);
-                    $query_ns->bindParam(':student_id', $student_id, PDO::PARAM_INT);
-                    $query_ns->execute();
-                }
-            }
-
-            // Muestra alerta de éxito y redirige a la página de gestión
-            echo '<script>alert("Comunicado agregado correctamente")</script>';
-            echo "<script>window.location.href ='manage-notices.php'</script>";
+        // Validaciones del lado servidor
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } elseif ($ntitle === '' || $ndetails === '') {
+            $error = "El título y la información del comunicado son obligatorios.";
+        } elseif (!in_array($audience_type, ['all', 'class', 'selected'], true)) {
+            $error = "Selecciona una audiencia válida.";
+        } elseif ($audience_type === 'class' && !$class_id) {
+            $error = "Selecciona la clase destinataria.";
+        } elseif ($audience_type === 'selected' && empty($selected_students)) {
+            $error = "Selecciona al menos un estudiante.";
         } else {
-            // Muestra alerta de error
-            echo '<script>alert("Algo salió mal. Inténtalo de nuevo.")</script>';
+            // Obtener ID del administrador actual (para registro de creación)
+            $admin_id = NULL;
+            $sql_admin = "SELECT id FROM admin WHERE UserName = :username";
+            $query_admin = $dbh->prepare($sql_admin);
+            $query_admin->bindParam(':username', $_SESSION['alogin'], PDO::PARAM_STR);
+            $query_admin->execute();
+            $admin_result = $query_admin->fetch(PDO::FETCH_ASSOC);
+            if ($admin_result) {
+                $admin_id = $admin_result['id'];
+            }
+
+            try {
+                // Comunicado + destinatarios se insertan de forma atómica
+                $dbh->beginTransaction();
+
+                $sql = "INSERT INTO tblnotice(noticeTitle, noticeDetails, audience_type, class_id, created_by, is_active)
+                        VALUES(:ntitle, :ndetails, :audience_type, :class_id, :created_by, 1)";
+                $query = $dbh->prepare($sql);
+                $query->bindParam(':ntitle', $ntitle, PDO::PARAM_STR);
+                $query->bindParam(':ndetails', $ndetails, PDO::PARAM_STR);
+                $query->bindParam(':audience_type', $audience_type, PDO::PARAM_STR);
+                $query->bindParam(':class_id', $class_id, $class_id === NULL ? PDO::PARAM_NULL : PDO::PARAM_INT);
+                $query->bindParam(':created_by', $admin_id, PDO::PARAM_INT);
+                $query->execute();
+
+                $lastInsertId = $dbh->lastInsertId();
+
+                // Determinar destinatarios según la audiencia
+                $students_to_notify = [];
+                if ($audience_type == 'all') {
+                    $sql_students = "SELECT StudentId FROM tblstudents WHERE Status = 1";
+                    $query_students = $dbh->prepare($sql_students);
+                    $query_students->execute();
+                    $students_to_notify = $query_students->fetchAll(PDO::FETCH_COLUMN);
+                } elseif ($audience_type == 'class' && $class_id) {
+                    $sql_students = "SELECT StudentId FROM tblstudents WHERE ClassId = :class_id AND Status = 1";
+                    $query_students = $dbh->prepare($sql_students);
+                    $query_students->bindParam(':class_id', $class_id, PDO::PARAM_INT);
+                    $query_students->execute();
+                    $students_to_notify = $query_students->fetchAll(PDO::FETCH_COLUMN);
+                } elseif ($audience_type == 'selected' && !empty($selected_students)) {
+                    // Valida que los IDs seleccionados sean alumnos reales y activos
+                    $ids = array_map('intval', $selected_students);
+                    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                    $sql_val = "SELECT StudentId FROM tblstudents WHERE Status = 1 AND StudentId IN ($placeholders)";
+                    $query_val = $dbh->prepare($sql_val);
+                    $query_val->execute($ids);
+                    $students_to_notify = $query_val->fetchAll(PDO::FETCH_COLUMN);
+                }
+
+                // Insertar en notice_student para cada estudiante válido
+                if (!empty($students_to_notify)) {
+                    $sql_ns = "INSERT INTO notice_student(notice_id, student_id, is_viewed, created_date)
+                               VALUES(:notice_id, :student_id, 0, NOW())";
+                    $query_ns = $dbh->prepare($sql_ns);
+                    foreach ($students_to_notify as $student_id) {
+                        $query_ns->bindValue(':notice_id', $lastInsertId, PDO::PARAM_INT);
+                        $query_ns->bindValue(':student_id', (int)$student_id, PDO::PARAM_INT);
+                        $query_ns->execute();
+                    }
+                }
+
+                $dbh->commit();
+
+                echo '<script>alert("Comunicado agregado correctamente")</script>';
+                echo "<script>window.location.href ='manage-notices.php'</script>";
+            } catch (PDOException $e) {
+                if ($dbh->inTransaction()) $dbh->rollBack();
+                $error = "No se pudo agregar el comunicado. Intenta de nuevo.";
+            }
         }
     }
 ?>
@@ -142,8 +162,12 @@ if (strlen($_SESSION['alogin']) == "") {
                                 </div>
 
                                 <div class="panel-body">
+                                    <?php if (!empty($error)) { ?>
+                                        <div class="alert alert-danger"><strong>Error:</strong> <?php echo htmlentities($error); ?></div>
+                                    <?php } ?>
                                     <!-- Formulario para ingresar el comunicado -->
                                     <form method="post">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                         <!-- Campo para el título -->
                                         <div class="form-group has-success">
                                             <label for="success" class="control-label">Título de Comunicado</label>

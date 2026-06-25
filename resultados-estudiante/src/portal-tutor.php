@@ -30,7 +30,7 @@ $sql = "SELECT
         FROM student_tutor st
         JOIN tblstudents s ON st.StudentId = s.StudentId
         JOIN tblclasses c ON s.ClassId = c.id
-        WHERE st.TutorId = :tutor_id AND st.PrimaryContact = 1
+        WHERE st.TutorId = :tutor_id AND st.CanViewGrades = 1
         ORDER BY s.StudentName ASC";
 $query = $dbh->prepare($sql);
 $query->bindParam(':tutor_id', $tutor_id, PDO::PARAM_INT);

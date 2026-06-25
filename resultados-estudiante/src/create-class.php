@@ -4,31 +4,58 @@ session_start();
 error_reporting(0);
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el usuario ha iniciado sesión, si no redirige al login
-if (strlen($_SESSION['alogin']) == "") {
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
+    // Inicializa los mensajes para evitar variables indefinidas en la vista
+    $msg = '';
+    $error = '';
+
+    // Niveles educativos válidos (deben coincidir con el ENUM de tblclasses.educationLevel)
+    $nivelesPermitidos = ['maternal', 'preprimaria', 'kinder', 'primaria', 'secundaria'];
+
     // Si el formulario fue enviado
     if (isset($_POST['submit'])) {
-        $classname = $_POST['classname'];
-        $classnamenumeric = $_POST['classnamenumeric'];
-        $section = $_POST['section'];
+        // Saneo básico de los datos recibidos
+        $classname = trim($_POST['classname']);
+        $classnamenumeric = trim($_POST['classnamenumeric']);
+        $section = trim($_POST['section']);
         $educationLevel = $_POST['educationLevel'];
 
-        $sql = "INSERT INTO tblclasses(ClassName, ClassNameNumeric, Section, educationLevel) VALUES(:classname, :classnamenumeric, :section, :educationLevel)";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':classname', $classname, PDO::PARAM_STR);
-        $query->bindParam(':classnamenumeric', $classnamenumeric, PDO::PARAM_STR);
-        $query->bindParam(':section', $section, PDO::PARAM_STR);
-        $query->bindParam(':educationLevel', $educationLevel, PDO::PARAM_STR);
-        $query->execute();
-
-        // Verifica si se insertó correctamente
-        $lastInsertId = $dbh->lastInsertId();
-        if ($lastInsertId) {
-            $msg = "Class Created successfully";
+        // Validación del lado servidor
+        if ($classname === '' || $section === '') {
+            $error = "El nombre del año y la sección son obligatorios.";
+        } elseif (!ctype_digit($classnamenumeric)) {
+            $error = "El año en número debe ser un valor numérico válido.";
+        } elseif (!in_array($educationLevel, $nivelesPermitidos, true)) {
+            $error = "Selecciona un nivel educativo válido.";
         } else {
-            $error = "Something went wrong. Please try again";
+            try {
+                $sql = "INSERT INTO tblclasses(ClassName, ClassNameNumeric, Section, educationLevel) VALUES(:classname, :classnamenumeric, :section, :educationLevel)";
+                $query = $dbh->prepare($sql);
+                $query->bindParam(':classname', $classname, PDO::PARAM_STR);
+                $query->bindParam(':classnamenumeric', $classnamenumeric, PDO::PARAM_INT);
+                $query->bindParam(':section', $section, PDO::PARAM_STR);
+                $query->bindParam(':educationLevel', $educationLevel, PDO::PARAM_STR);
+                $query->execute();
+
+                // Verifica si se insertó correctamente
+                $lastInsertId = $dbh->lastInsertId();
+                if ($lastInsertId) {
+                    $msg = "Año/grupo creado correctamente.";
+                } else {
+                    $error = "Algo salió mal. Por favor, inténtalo de nuevo.";
+                }
+            } catch (PDOException $e) {
+                // Código 23000 = violación de restricción de integridad (clave única duplicada)
+                if ($e->getCode() == 23000) {
+                    $error = "Ya existe un grupo con ese nombre y sección.";
+                } else {
+                    $error = "Algo salió mal. Por favor, inténtalo de nuevo.";
+                }
+            }
         }
     }
 ?>
@@ -76,7 +103,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                 <!-- Mensaje de éxito o error -->
                                 <?php if ($msg) { ?>
                                     <div class="alert alert-success left-icon-alert" role="alert">
-                                        <strong>Bien Hecho</strong><?php echo htmlentities($msg); ?>
+                                        <strong>Bien Hecho</strong> <?php echo htmlentities($msg); ?>
                                     </div>
                                 <?php } else if ($error) { ?>
                                     <div class="alert alert-danger left-icon-alert" role="alert">

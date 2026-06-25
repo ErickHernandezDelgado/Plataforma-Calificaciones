@@ -8,23 +8,47 @@ error_reporting(0);
 // Incluye archivo de configuración (conexión a la base de datos, etc.)
 include(__DIR__ . '/includes/config.php');
 
-// Verifica si el administrador ha iniciado sesión
-if (strlen($_SESSION['alogin']) == "") {
-    // Si no ha iniciado sesión, redirige al login
+// Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
+    exit;
 } else {
+    // Inicializa los mensajes para evitar variables indefinidas en la vista
+    $msg = '';
+    $error = '';
+
+    // Valida que se haya recibido un ID de materia y que la materia exista
+    $sid = intval($_GET['subjectid'] ?? 0);
+    if (!$sid) {
+        header("Location: manage-subjects.php");
+        exit;
+    }
+    $chk = $dbh->prepare("SELECT * FROM tblsubjects WHERE id = :sid");
+    $chk->bindParam(':sid', $sid, PDO::PARAM_INT);
+    $chk->execute();
+    $subject = $chk->fetch(PDO::FETCH_OBJ);
+    if (!$subject) {
+        header("Location: manage-subjects.php");
+        exit;
+    }
 
     if (isset($_POST['Update'])) {
-        $sid = intval($_GET['subjectid']);
         $subjectname = trim($_POST['subjectname']);
 
-        $sql = "UPDATE tblsubjects SET SubjectName = :subjectname WHERE id = :sid";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
-        $query->bindParam(':sid', $sid, PDO::PARAM_STR);
-        $query->execute();
+        if ($subjectname === '') {
+            $error = "El nombre de la materia es obligatorio.";
+        } else {
+            $sql = "UPDATE tblsubjects SET SubjectName = :subjectname WHERE id = :sid";
+            $query = $dbh->prepare($sql);
+            $query->bindParam(':subjectname', $subjectname, PDO::PARAM_STR);
+            $query->bindParam(':sid', $sid, PDO::PARAM_INT);
+            $query->execute();
 
-        $msg = " Información de Materia Actualizada Correctamente";
+            $msg = "Información de materia actualizada correctamente.";
+            // Recargar datos para reflejar el cambio en el formulario
+            $chk->execute();
+            $subject = $chk->fetch(PDO::FETCH_OBJ);
+        }
     }
 ?>
 
@@ -76,7 +100,7 @@ if (strlen($_SESSION['alogin']) == "") {
                                     <!-- Mensajes de éxito o error -->
                                     <?php if ($msg) { ?>
                                         <div class="alert alert-success left-icon-alert" role="alert">
-                                            <strong>Bien hecho!</strong><?php echo htmlentities($msg); ?>
+                                            <strong>Bien hecho!</strong> <?php echo htmlentities($msg); ?>
                                         </div>
                                     <?php } else if ($error) { ?>
                                         <div class="alert alert-danger left-icon-alert" role="alert">
@@ -87,29 +111,11 @@ if (strlen($_SESSION['alogin']) == "") {
                                     <!-- Formulario de actualización -->
                                     <form class="form-horizontal" method="post">
 
-                                        <?php
-                                        // Obtiene el ID de la materia desde GET
-                                        $sid = intval($_GET['subjectid']);
-
-                                        // Consulta SQL para obtener los datos actuales de la materia
-                                        $sql = "SELECT * from tblsubjects where id=:sid";
-                                        $query = $dbh->prepare($sql);
-                                        $query->bindParam(':sid', $sid, PDO::PARAM_STR);
-                                        $query->execute();
-
-                                        // Obtiene todos los resultados
-                                        $results = $query->fetchAll(PDO::FETCH_OBJ);
-                                        $cnt = 1;
-
-                                        // Si hay resultados, muestra los campos del formulario con los valores actuales
-                                        if ($query->rowCount() > 0) {
-                                            foreach ($results as $result) {
-                                        ?>
-                                                <!-- Campo: Nombre de la materia -->
+                                        <!-- Campo: Nombre de la materia -->
                                                 <div class="form-group">
                                                     <label class="col-sm-2 control-label">Nombre Materia</label>
                                                     <div class="col-sm-10">
-                                                        <input type="text" name="subjectname" value="<?php echo htmlentities($result->SubjectName); ?>" class="form-control" placeholder="Nombre Materia" required>
+                                                        <input type="text" name="subjectname" value="<?php echo htmlentities($subject->SubjectName); ?>" class="form-control" placeholder="Nombre Materia" required>
                                                     </div>
                                                 </div>
 
@@ -117,12 +123,10 @@ if (strlen($_SESSION['alogin']) == "") {
                                                 <div class="form-group">
                                                     <label class="col-sm-2 control-label">Código Materia</label>
                                                     <div class="col-sm-10">
-                                                        <input type="text" class="form-control" value="<?php echo htmlentities($result->SubjectCode); ?>" disabled>
+                                                        <input type="text" class="form-control" value="<?php echo htmlentities($subject->SubjectCode); ?>" disabled>
                                                         <span class="help-block">El código se asigna automáticamente al crear la materia.</span>
                                                     </div>
                                                 </div>
-                                        <?php }
-                                        } ?>
 
                                         <!-- Botón para enviar el formulario -->
                                         <div class="form-group">

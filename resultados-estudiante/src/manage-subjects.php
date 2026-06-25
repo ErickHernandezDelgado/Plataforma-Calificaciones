@@ -3,7 +3,7 @@ session_start();
 error_reporting(E_ALL & ~E_NOTICE);
 include(__DIR__ . '/includes/config.php');
 
-if (empty($_SESSION['alogin'])) {
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
     exit;
 }
@@ -11,34 +11,45 @@ if (empty($_SESSION['alogin'])) {
 $msg = '';
 $error = '';
 
-// Eliminar materia
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $subjectId = $_GET['delete'];
+// Genera un token CSRF para proteger la eliminación (formulario POST)
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
-    $checks = [
-        'tblsubjectcombination' => 'grupos asignados',
-        'tblteacher_subject'    => 'docentes asignados',
-        'tblresult'             => 'calificaciones registradas',
-    ];
-    $blocking = [];
-    foreach ($checks as $table => $label) {
-        $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE SubjectId = :id");
-        $chk->bindParam(':id', $subjectId, PDO::PARAM_INT);
-        $chk->execute();
-        if ($chk->fetchColumn() > 0) {
-            $blocking[] = $label;
-        }
-    }
-
-    if (!empty($blocking)) {
-        $error = "No se puede eliminar esta materia porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
+// Eliminar materia: solo vía POST y con token CSRF válido
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif (!is_numeric($_POST['delete'])) {
+        $error = "Identificador de materia no válido.";
     } else {
-        $del = $dbh->prepare("DELETE FROM tblsubjects WHERE id = :id");
-        $del->bindParam(':id', $subjectId, PDO::PARAM_INT);
-        if ($del->execute()) {
-            $msg = "Materia eliminada correctamente.";
+        $subjectId = (int) $_POST['delete'];
+
+        $checks = [
+            'tblsubjectcombination' => 'grupos asignados',
+            'tblteacher_subject'    => 'docentes asignados',
+            'tblresult'             => 'calificaciones registradas',
+        ];
+        $blocking = [];
+        foreach ($checks as $table => $label) {
+            $chk = $dbh->prepare("SELECT COUNT(*) FROM `$table` WHERE SubjectId = :id");
+            $chk->bindParam(':id', $subjectId, PDO::PARAM_INT);
+            $chk->execute();
+            if ($chk->fetchColumn() > 0) {
+                $blocking[] = $label;
+            }
+        }
+
+        if (!empty($blocking)) {
+            $error = "No se puede eliminar esta materia porque tiene: " . implode(', ', $blocking) . ". Elimina esos registros primero.";
         } else {
-            $error = "No se pudo eliminar la materia. Intenta de nuevo.";
+            $del = $dbh->prepare("DELETE FROM tblsubjects WHERE id = :id");
+            $del->bindParam(':id', $subjectId, PDO::PARAM_INT);
+            if ($del->execute()) {
+                $msg = "Materia eliminada correctamente.";
+            } else {
+                $error = "No se pudo eliminar la materia. Intenta de nuevo.";
+            }
         }
     }
 }
@@ -118,7 +129,8 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                             $selected_class = $_POST['class_filter'] ?? '';
                                             foreach ($classes as $class) {
                                                 $selected = ($selected_class == $class->id) ? 'selected' : '';
-                                                echo "<option value='{$class->id}' {$selected}>{$class->ClassName} - {$class->Section} ({$class->AcademicYear})</option>";
+                                                $label = htmlspecialchars("{$class->ClassName} - {$class->Section} ({$class->AcademicYear})", ENT_QUOTES);
+                                                echo "<option value='" . (int)$class->id . "' {$selected}>{$label}</option>";
                                             }
                                             ?>
                                         </select>
@@ -175,7 +187,7 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                             
                                             $sql .= " GROUP BY s.id ORDER BY s.SubjectName ASC";
                                             $query = $dbh->prepare($sql);
-                                            if (!empty($selected_class)) $query->bindParam(':class_id', $selected_class);
+                                            if (!empty($selected_class)) $query->bindValue(':class_id', (int)$selected_class, PDO::PARAM_INT);
                                             $query->execute();
                                             $results = $query->fetchAll(PDO::FETCH_OBJ);
                                             $cnt = 1;
@@ -197,12 +209,14 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                                                 </td>
                                                 <td class="text-center">
                                                     <a href="edit-subject.php?subjectid=<?php echo $result->id; ?>" class="btn btn-info btn-xs" title="Editar"><i class="fa fa-edit"></i></a>
-                                                    <a href="manage-subjects.php?delete=<?php echo $result->id; ?>"
-                                                       class="btn btn-danger btn-xs"
-                                                       title="Eliminar"
-                                                       onclick="return confirm('¿Eliminar la materia «<?php echo htmlspecialchars($result->SubjectName, ENT_QUOTES); ?>»? Esta acción no se puede deshacer.');">
-                                                        <i class="fa fa-trash"></i>
-                                                    </a>
+                                                    <form method="post" action="manage-subjects.php" style="display:inline;"
+                                                          onsubmit="return confirm('¿Eliminar la materia «<?php echo htmlspecialchars($result->SubjectName, ENT_QUOTES); ?>»? Esta acción no se puede deshacer.');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                        <input type="hidden" name="delete" value="<?php echo $result->id; ?>">
+                                                        <button type="submit" class="btn btn-danger btn-xs" title="Eliminar">
+                                                            <i class="fa fa-trash"></i>
+                                                        </button>
+                                                    </form>
                                                 </td>
                                             </tr>
                                             <?php } ?>
@@ -215,7 +229,6 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
                 </div>
             </div>
         </div>
-        <?php include('includes/footer.php'); ?>
     </div>
 
     <script src="js/jquery/jquery-2.2.4.min.js"></script>

@@ -8,17 +8,31 @@
 // Validación centralizada de sesión
 include(__DIR__ . '/includes/check-login.php');
 
+// Verificación de rol admin (check-login.php solo valida sesión, no rol)
+if ($_SESSION['role'] !== 'admin') {
+    header("Location: index.php");
+    exit;
+}
+
 // Cargar dependencias
 require 'vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+error_reporting(0);
+ini_set('display_errors', 0);
+
+// Genera un token CSRF para proteger los formularios
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 // Variables de control
 $msg = "";
 $error = "";
-$tutor_credentials = ""; 
+$tutor_credentials = "";
+
+// Relaciones válidas según el ENUM de student_tutor
+$relaciones_validas = ['padre', 'madre', 'tutor_legal', 'abuelo'];
 
 /** * LÓGICA DE FUNCIONES AUXILIARES 
  */
@@ -29,10 +43,10 @@ function generatePassword($length = 8) {
     return substr(str_shuffle($chars), 0, $length);
 }
 
-// Crear tutor con cifrado MD5 (Estándar del sistema)
+// Crear tutor con contraseña cifrada en bcrypt (el login acepta bcrypt y MD5 legacy)
 function createTutor($dbh, $email, $name) {
     $raw_pass = generatePassword(8);
-    $md5_pass = md5($raw_pass);
+    $hash_pass = password_hash($raw_pass, PASSWORD_DEFAULT);
     $role = 'tutor';
 
     $check = $dbh->prepare("SELECT id FROM admin WHERE UserName = :u");
@@ -41,9 +55,7 @@ function createTutor($dbh, $email, $name) {
 
     $sql = "INSERT INTO admin (UserName, Password, role) VALUES(:u, :p, :r)";
     $query = $dbh->prepare($sql);
-    $query->execute([':u' => $email, ':p' => $md5_pass, ':r' => $role]);
-
-    if ($query) {
+    if ($query->execute([':u' => $email, ':p' => $hash_pass, ':r' => $role])) {
         return ['id' => $dbh->lastInsertId(), 'email' => $email, 'pass' => $raw_pass];
     }
     return null;
@@ -64,71 +76,111 @@ function linkTutor($dbh, $sid, $tid, $rel) {
 
 // Registro Individual
 if (isset($_POST['submit'])) {
-    $name = $_POST['fullanme'];
-    $email = $_POST['emailid'];
-    $curp = $_POST['curp'];
-    $classid = $_POST['class'];
-    
-    $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, CURP, ClassId, Status) VALUES(:n, :e, :c, :cl, 1)";
-    $query = $dbh->prepare($sql);
-    $query->execute([':n' => $name, ':e' => $email, ':c' => $curp, ':cl' => $classid]);
-    $student_id = $dbh->lastInsertId();
+    // Validación CSRF
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } else {
+        $name = trim($_POST['fullname'] ?? '');
+        $email = trim($_POST['emailid'] ?? '');
+        $curp = trim($_POST['curp'] ?? '');
+        $classid = intval($_POST['class'] ?? 0);
+        $tutor_option = $_POST['tutor_option'] ?? '';
+        $relationship = $_POST['relationship_type'] ?? 'padre';
 
-    if ($student_id) {
-        if ($_POST['tutor_option'] == 'create') {
-            // OPCIÓN 1: CREAR TUTOR NUEVO
-            $t_email = $_POST['tutor_email'];
-            $t_info = createTutor($dbh, $t_email, $_POST['tutor_name']);
-            
-            if ($t_info === 'exists') {
-                $error = "El correo del tutor ya existe. Alumno creado sin vinculación.";
-            } elseif ($t_info) {
-                linkTutor($dbh, $student_id, $t_info['id'], $_POST['relationship_type']);
-                $tutor_credentials = "
-                <div class='alert alert-warning' style='border: 2px solid #856404;'>
-                    <strong>🔑 CREDENCIALES DEL TUTOR:</strong><br>
-                    Usuario: <b>{$t_info['email']}</b> | Contraseña: <b style='color:red;'>{$t_info['pass']}</b>
-                </div>";
-                $msg = "Estudiante y Tutor creados con éxito.";
-            }
-        } 
-        elseif ($_POST['tutor_option'] == 'existing') {
-            // OPCIÓN 2: VINCULAR TUTOR EXISTENTE
-            $existing_tutor_id = intval($_POST['existing_tutor_id'] ?? 0);
-            $relationship = $_POST['relationship_type'] ?? 'padre';
-            
-            if ($existing_tutor_id > 0) {
-                // Obtener información del tutor para mostrar
-                $tutor_sql = "SELECT UserName FROM admin WHERE id = :tid AND role = 'tutor'";
-                $tutor_query = $dbh->prepare($tutor_sql);
-                $tutor_query->execute([':tid' => $existing_tutor_id]);
-                $tutor_info = $tutor_query->fetch(PDO::FETCH_OBJ);
-                
-                if ($tutor_info) {
-                    // Vincular alumno con tutor existente
-                    if (linkTutor($dbh, $student_id, $existing_tutor_id, $relationship)) {
-                        $msg = "✅ Estudiante vinculado con tutor existente correctamente.";
+        // Validación del lado servidor
+        if ($name === '' || $email === '') {
+            $error = "El nombre y el correo del estudiante son obligatorios.";
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = "El correo del estudiante no es válido.";
+        } elseif ($classid < 1) {
+            $error = "Selecciona un grupo/grado válido.";
+        } elseif (!in_array($relationship, $relaciones_validas, true)) {
+            $error = "Selecciona una relación de tutor válida.";
+        } else {
+            // Verifica que el grupo exista
+            $chkClass = $dbh->prepare("SELECT id FROM tblclasses WHERE id = :id");
+            $chkClass->execute([':id' => $classid]);
+            if (!$chkClass->fetch()) {
+                $error = "El grupo/grado seleccionado no existe.";
+            } else {
+                // Transacción: alumno + tutor se crean juntos o no se crea nada
+                try {
+                    $dbh->beginTransaction();
+
+                    $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, Curp, ClassId, Status) VALUES(:n, :e, :c, :cl, 1)";
+                    $query = $dbh->prepare($sql);
+                    $query->execute([':n' => $name, ':e' => $email, ':c' => $curp, ':cl' => $classid]);
+                    $student_id = $dbh->lastInsertId();
+
+                    if ($tutor_option === 'create') {
+                        // OPCIÓN 1: CREAR TUTOR NUEVO
+                        $t_email = trim($_POST['tutor_email'] ?? '');
+                        if (!filter_var($t_email, FILTER_VALIDATE_EMAIL)) {
+                            throw new RuntimeException("El correo del tutor no es válido.");
+                        }
+                        $t_info = createTutor($dbh, $t_email, trim($_POST['tutor_name'] ?? ''));
+
+                        if ($t_info === 'exists') {
+                            throw new RuntimeException("El correo del tutor ya existe en el sistema.");
+                        } elseif ($t_info) {
+                            linkTutor($dbh, $student_id, $t_info['id'], $relationship);
+                            $dbh->commit();
+                            $tutor_credentials = "
+                            <div class='alert alert-warning' style='border: 2px solid #856404;'>
+                                <strong>🔑 CREDENCIALES DEL TUTOR:</strong><br>
+                                Usuario: <b>" . htmlentities($t_info['email']) . "</b> | Contraseña: <b style='color:red;'>" . htmlentities($t_info['pass']) . "</b>
+                            </div>";
+                            $msg = "Estudiante y Tutor creados con éxito.";
+                        } else {
+                            throw new RuntimeException("No se pudo crear el tutor.");
+                        }
+                    } elseif ($tutor_option === 'existing') {
+                        // OPCIÓN 2: VINCULAR TUTOR EXISTENTE
+                        $existing_tutor_id = intval($_POST['existing_tutor_id'] ?? 0);
+                        if ($existing_tutor_id < 1) {
+                            throw new RuntimeException("Debe seleccionar un tutor válido.");
+                        }
+                        $tutor_query = $dbh->prepare("SELECT UserName FROM admin WHERE id = :tid AND role = 'tutor'");
+                        $tutor_query->execute([':tid' => $existing_tutor_id]);
+                        $tutor_info = $tutor_query->fetch(PDO::FETCH_OBJ);
+
+                        if (!$tutor_info) {
+                            throw new RuntimeException("El tutor seleccionado no existe en el sistema.");
+                        }
+                        linkTutor($dbh, $student_id, $existing_tutor_id, $relationship);
+                        $dbh->commit();
+                        $msg = "Estudiante vinculado con tutor existente correctamente.";
                         $tutor_credentials = "
                         <div class='alert alert-success' style='border: 2px solid #155724;'>
                             <strong>✓ TUTOR EXISTENTE VINCULADO:</strong><br>
-                            Email del Tutor: <b>{$tutor_info->UserName}</b><br>
-                            Relación: <b>" . ucfirst($relationship) . "</b><br>
+                            Email del Tutor: <b>" . htmlentities($tutor_info->UserName) . "</b><br>
+                            Relación: <b>" . htmlentities(ucfirst($relationship)) . "</b><br>
                             <em>El tutor puede acceder a las calificaciones de este estudiante</em>
                         </div>";
                     } else {
-                        $error = "Error al vincular el tutor. Intenta nuevamente.";
+                        throw new RuntimeException("Selecciona una opción de tutor.");
                     }
-                } else {
-                    $error = "El tutor seleccionado no existe en el sistema.";
+                } catch (PDOException $e) {
+                    // PDOException debe ir ANTES que RuntimeException porque es una subclase de ella;
+                    // si no, el catch de RuntimeException la atraparía y mostraría el mensaje SQL crudo.
+                    if ($dbh->inTransaction()) $dbh->rollBack();
+                    if ($e->getCode() == 23000) {
+                        $error = "Ya existe un estudiante o tutor registrado con ese correo electrónico.";
+                    } else {
+                        $error = "No se pudo registrar al estudiante. Intenta de nuevo.";
+                    }
+                } catch (RuntimeException $e) {
+                    if ($dbh->inTransaction()) $dbh->rollBack();
+                    $error = $e->getMessage();
                 }
-            } else {
-                $error = "Debe seleccionar un tutor válido.";
             }
         }
     }
 }
 
 // Importación Excel
+// TODO (pendiente auditoría): este bloque necesita endurecerse — validación de tipo de archivo,
+// transacción, validación de filas y de ClassId, y creación de tutores. No tocado por decisión del usuario.
 if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
     $spreadsheet = IOFactory::load($_FILES['excel_file']['tmp_name']);
     $data = $spreadsheet->getActiveSheet()->toArray();
@@ -169,14 +221,15 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                         <section class="section">
                             <div class="panel">
                                 <div class="panel-body">
-                                    <?php if($msg) echo "<div class='alert alert-success'>$msg</div>"; ?>
-                                    <?php if($error) echo "<div class='alert alert-danger'>$error</div>"; ?>
+                                    <?php if($msg) echo "<div class='alert alert-success'>" . htmlentities($msg) . "</div>"; ?>
+                                    <?php if($error) echo "<div class='alert alert-danger'>" . htmlentities($error) . "</div>"; ?>
                                     <?php if($tutor_credentials) echo $tutor_credentials; ?>
 
                                     <form method="post" class="row">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                         <div class="form-group col-md-6">
                                             <label>Nombre Completo</label>
-                                            <input type="text" name="fullanme" class="form-control" required>
+                                            <input type="text" name="fullname" class="form-control" required>
                                         </div>
                                         <div class="form-group col-md-6">
                                             <label>Correo Electrónico</label>
@@ -194,7 +247,7 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                                 $q = $dbh->prepare("SELECT * FROM vw_classes_for_enrollment");
                                                 $q->execute();
                                                 foreach($q->fetchAll(PDO::FETCH_OBJ) as $c) {
-                                                    echo "<option value='{$c->id}'>{$c->ClassName_display}</option>";
+                                                    echo "<option value='" . (int)$c->id . "'>" . htmlentities($c->ClassName_display) . "</option>";
                                                 }
                                                 ?>
                                             </select>
@@ -217,10 +270,8 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                                     <select name="relationship_type" class="form-control">
                                                         <option value="padre">Padre</option>
                                                         <option value="madre">Madre</option>
-                                                        <option value="tutor">Tutor Legal</option>
+                                                        <option value="tutor_legal">Tutor Legal</option>
                                                         <option value="abuelo">Abuelo/a</option>
-                                                        <option value="tio">Tío/a</option>
-                                                        <option value="otro">Otro</option>
                                                     </select>
                                                 </div>
                                             </div>
@@ -232,7 +283,7 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                                 <?php
                                                 $qt = $dbh->prepare("SELECT id, UserName FROM admin WHERE role='tutor'");
                                                 $qt->execute();
-                                                foreach($qt->fetchAll(PDO::FETCH_OBJ) as $t) echo "<option value='{$t->id}'>{$t->UserName}</option>";
+                                                foreach($qt->fetchAll(PDO::FETCH_OBJ) as $t) echo "<option value='" . (int)$t->id . "'>" . htmlentities($t->UserName) . "</option>";
                                                 ?>
                                             </select>
                                         </div>

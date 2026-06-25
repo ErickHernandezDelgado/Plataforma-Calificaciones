@@ -64,44 +64,44 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                 <div class="row">
                                     <div class="col-lg-3 col-md-3 col-sm-6 text-center">
                                         <a class="dashboard-stat bg-white" href="manage-students.php">
-                                            <?php 
-                                            $q1 = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE Status = 1");
+                                            <?php
+                                            $q1 = $dbh->prepare("SELECT COUNT(*) FROM tblstudents WHERE Status = 1");
                                             $q1->execute();
                                             ?>
-                                            <span class="number" style="color: #0F9B3A;"><?= $q1->rowCount(); ?></span>
+                                            <span class="number" style="color: #0F9B3A;"><?= $q1->fetchColumn(); ?></span>
                                             <span class="name">Estudiantes Activos</span>
                                         </a>
                                     </div>
 
                                     <div class="col-lg-3 col-md-3 col-sm-6 text-center">
                                         <a class="dashboard-stat bg-white" href="manage-teacher.php">
-                                            <?php 
-                                            $q_t = $dbh->prepare("SELECT Id FROM tblteachers WHERE Status = 1");
+                                            <?php
+                                            $q_t = $dbh->prepare("SELECT COUNT(*) FROM tblteachers WHERE Status = 1");
                                             $q_t->execute();
                                             ?>
-                                            <span class="number" style="color: #2196F3;"><?= $q_t->rowCount(); ?></span>
+                                            <span class="number" style="color: #2196F3;"><?= $q_t->fetchColumn(); ?></span>
                                             <span class="name">Docentes Activos</span>
                                         </a>
                                     </div>
 
                                     <div class="col-lg-3 col-md-3 col-sm-6 text-center">
                                         <a class="dashboard-stat bg-white" href="manage-subjects.php">
-                                            <?php 
-                                            $q_s = $dbh->prepare("SELECT id FROM tblsubjects");
+                                            <?php
+                                            $q_s = $dbh->prepare("SELECT COUNT(*) FROM tblsubjects");
                                             $q_s->execute();
                                             ?>
-                                            <span class="number" style="color: #FF9800;"><?= $q_s->rowCount(); ?></span>
+                                            <span class="number" style="color: #FF9800;"><?= $q_s->fetchColumn(); ?></span>
                                             <span class="name">Materias Totales</span>
                                         </a>
                                     </div>
 
                                     <div class="col-lg-3 col-md-3 col-sm-6 text-center">
                                         <a class="dashboard-stat bg-white" href="manage-classes.php">
-                                            <?php 
-                                            $q_c = $dbh->prepare("SELECT id FROM tblclasses");
+                                            <?php
+                                            $q_c = $dbh->prepare("SELECT COUNT(*) FROM tblclasses");
                                             $q_c->execute();
                                             ?>
-                                            <span class="number" style="color: #9C27B0;"><?= $q_c->rowCount(); ?></span>
+                                            <span class="number" style="color: #9C27B0;"><?= $q_c->fetchColumn(); ?></span>
                                             <span class="name">Años / Grupos</span>
                                         </a>
                                     </div>

@@ -7,14 +7,21 @@
 
 include(__DIR__ . '/includes/check-login.php');
 
-// Verificación de Sesión
-if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0) {
+// Verificación de Sesión y rol.
+// Esta pantalla es compartida por admin y docentes; ambos pueden capturar notas.
+if (!isset($_SESSION['alogin']) || strlen($_SESSION['alogin']) == 0
+    || !in_array($_SESSION['role'] ?? '', ['admin', 'teacher'], true)) {
     header("Location: index.php");
     exit;
 }
 
 $msg = "";
 $error = "";
+
+// Genera un token CSRF para proteger el guardado de calificaciones
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 // PROCESAMIENTO DEL FORMULARIO
 if (isset($_POST['submit'])) {
@@ -23,7 +30,9 @@ if (isset($_POST['submit'])) {
     $mark = $_POST['marks'] ?? []; // Array de calificaciones
     $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type|term_number"
 
-    if (empty($periodo_data)) {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif (empty($periodo_data)) {
         $error = "Por favor selecciona un trimestre/bimestre.";
     } elseif (empty($mark)) {
         $error = "No hay materias asignadas a este grupo.";
@@ -67,25 +76,46 @@ if (isset($_POST['submit'])) {
             }
             $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+            // Verifica que el alumno exista y pertenezca al grupo indicado
+            $chkStudent = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE StudentId = :sid AND ClassId = :cid");
+            $chkStudent->execute([':sid' => $studentid, ':cid' => $class]);
+
             if (empty($subjectIds)) {
                 $error = "No hay materias asignadas a este grupo.";
+            } elseif (!$chkStudent->fetch()) {
+                $error = "El alumno seleccionado no pertenece a este grupo.";
             } else {
+                // Prepara una verificación de duplicados (mismo alumno+materia+período).
+                // Se compara por el texto Trimestre para distinguir "Bimestre N" de "Trimestre N".
+                $dupCheck = $dbh->prepare("SELECT COUNT(*) FROM tblresult WHERE StudentId = :sid AND SubjectId = :subid AND ClassId = :cid AND Trimestre = :trim");
+
                 $dbh->beginTransaction();
-
                 try {
-                    for ($i = 0; $i < count($mark); $i++) {
-                        if ($mark[$i] !== "" && isset($subjectIds[$i])) { 
-                            $val = intval($mark[$i]);  // marks es INT en la BD
-                            $sid = intval($subjectIds[$i]);
+                    $guardadas = 0;
+                    $omitidas = 0;
+                    $fuera_rango = false;
 
-                            // Insertar con estructura correcta: StudentId, ClassId, SubjectId, marks, term
-                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre, term, PostingDate) 
+                    for ($i = 0; $i < count($mark); $i++) {
+                        if ($mark[$i] !== "" && isset($subjectIds[$i])) {
+                            // Validación de rango: la calificación debe ser un entero 0-100
+                            if (!is_numeric($mark[$i]) || intval($mark[$i]) < 0 || intval($mark[$i]) > 100) {
+                                $fuera_rango = true;
+                                continue;
+                            }
+                            $val = intval($mark[$i]);
+                            $sid = intval($subjectIds[$i]);
+                            $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
+
+                            // Salta si ya existe esa calificación (alumno+materia+grupo+período)
+                            $dupCheck->execute([':sid' => $studentid, ':subid' => $sid, ':cid' => $class, ':trim' => $trimestre_text]);
+                            if ((int)$dupCheck->fetchColumn() > 0) {
+                                $omitidas++;
+                                continue;
+                            }
+
+                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre, term, PostingDate)
                                     VALUES(:studentid, :classid, :subjectid, :marks, :trimestre, :term, NOW())";
                             $query = $dbh->prepare($sql);
-                            
-                            // Construir el texto Trimestre/Bimestre
-                            $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
-                            
                             $query->execute([
                                 ':studentid' => $studentid,
                                 ':classid' => $class,
@@ -94,13 +124,18 @@ if (isset($_POST['submit'])) {
                                 ':trimestre' => $trimestre_text,
                                 ':term' => $term_number
                             ]);
+                            $guardadas++;
                         }
                     }
                     $dbh->commit();
-                    $msg = "✅ Resultados guardados correctamente.";
-                } catch (Exception $e) {
-                    $dbh->rollBack();
-                    $error = "❌ Error al guardar: " . $e->getMessage();
+
+                    if ($fuera_rango) {
+                        $error = "Algunas calificaciones estaban fuera del rango 0-100 y no se guardaron.";
+                    }
+                    $msg = "Resultados guardados: {$guardadas}." . ($omitidas > 0 ? " {$omitidas} ya existían y se omitieron." : "");
+                } catch (PDOException $e) {
+                    if ($dbh->inTransaction()) $dbh->rollBack();
+                    $error = "Error al guardar las calificaciones. Intenta de nuevo.";
                 }
             }
         }
@@ -382,6 +417,7 @@ if (isset($_POST['submit'])) {
                                             </div>
 
                                             <form method="post">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                                 <div class="form-section">
                                                     <span class="form-section-title">1. Contexto Académico</span>
                                                     <div class="row">
@@ -405,7 +441,7 @@ if (isset($_POST['submit'])) {
                                                         <div class="col-md-6">
                                                             <div class="form-group">
                                                                 <label>Período Evaluativo</label>
-                                                                <select name="periodo_data" id="periodo_data" class="form-control" required>
+                                                                <select name="periodo_data" id="periodo_data" class="form-control" required onChange="onPeriodoChange();">
                                                                     <option value="">Selecciona un grupo primero</option>
                                                                 </select>
                                                             </div>
@@ -481,24 +517,26 @@ if (isset($_POST['submit'])) {
 
     function getresult(val) {
         var cid = $("#classid").val();
-        var periodo = $("#periodo_data").val(); 
+        var periodo = $("#periodo_data").val();
 
-        if (periodo === "") {
-            alert("Por favor, selecciona primero un período evaluativo.");
-            $("#studentid").val(""); 
+        // Limpia el aviso previo y rehabilita el botón antes de revalidar,
+        // para que al cambiar de período no quede el estado anterior pegado.
+        $("#reslt").html("");
+        $("#submit").attr("disabled", false);
+
+        if (val === "" || periodo === "") {
             return;
         }
 
-        // Construir datos para validar duplicados: ClassId $ StudentId $ term
-        var periodoParts = periodo.split('|');
-        var term_number = periodoParts[1];  // Solo necesitamos el número del término
-        var fullData = cid + '$' + val + '$' + term_number;
+        // Construir datos para validar duplicados: ClassId $ StudentId $ "type|number"
+        // Se envía el período completo (type|number) para distinguir Bimestre de Trimestre.
+        var fullData = cid + '$' + val + '$' + periodo;
 
         $.post("get_student.php?lang=es", {
             studclass: fullData
         }, function(data) {
             $("#reslt").html(data);
-            
+
             // Si el mensaje indica que ya existen resultados, deshabilitamos el botón
             if(data.toLowerCase().indexOf("ya cuenta con resultados") !== -1) {
                 $("#submit").attr("disabled", true);
@@ -508,13 +546,18 @@ if (isset($_POST['submit'])) {
         });
     }
 
-    // Resetear validación si cambian el período después de elegir alumno
-    $('#periodo_data').on('change', function() {
-        var studentSelected = $("#studentid").val();
+    // Revalidar cuando cambian el período (llamado desde el onChange inline del select).
+    // Se usa onChange inline en vez de $(...).on() para que funcione aunque algo
+    // más en el script falle o jQuery no esté listo al registrar el binding.
+    function onPeriodoChange() {
+        var studentSelected = document.getElementById('studentid').value;
         if (studentSelected && studentSelected !== "") {
             getresult(studentSelected);
+        } else {
+            document.getElementById('reslt').innerHTML = "";
+            document.getElementById('submit').disabled = false;
         }
-    });
+    }
     </script>
 </body>
 </html>

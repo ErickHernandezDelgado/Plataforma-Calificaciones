@@ -3,16 +3,33 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 error_reporting(E_ALL & ~E_NOTICE); 
 include(__DIR__ . '/includes/config.php');
 
-if (strlen($_SESSION['alogin']) == "") {
+if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
     exit();
 }
 
-$tid = intval($_GET['tid']);
-$msg = ""; $error = "";
+$tid = intval($_GET['tid'] ?? 0);
+$msg = ""; $error = ""; $nueva_clave_generada = "";
+
+// Genera un token CSRF para proteger las acciones POST (actualizar / resetear clave)
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Verifica que el docente exista antes de continuar
+$chkTeacher = $dbh->prepare("SELECT id FROM tblteachers WHERE id = :tid");
+$chkTeacher->execute([':tid' => $tid]);
+if (!$tid || !$chkTeacher->fetch()) {
+    header("Location: manage-teacher.php");
+    exit();
+}
 
 // 1. LÓGICA DE ACTUALIZACIÓN (Perfil y Credenciales)
 if (isset($_POST['update']) || isset($_POST['reset_pass'])) {
+    // Validación CSRF
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } else {
     try {
         $dbh->beginTransaction();
 
@@ -39,20 +56,24 @@ if (isset($_POST['update']) || isset($_POST['reset_pass'])) {
         if (isset($_POST['reset_pass'])) {
             // Generar nueva clave temporal
             $new_password = substr(str_shuffle("0123456789abcdefghijklmnopqrstuvwxyz"), 0, 8);
-            
-            // Actualizar SOLO en la tabla admin usando MD5
+
+            // Actualizar en la tabla admin con bcrypt (password_hash).
+            // El login acepta bcrypt y MD5 legacy, así que no afecta cuentas existentes.
             $sql_pw = "UPDATE admin SET Password = :pass WHERE teacher_id = :tid";
             $query_pw = $dbh->prepare($sql_pw);
-            $query_pw->execute([':pass' => md5($new_password), ':tid' => $tid]);
-            
-            $msg = "Contraseña reseteada con éxito. La nueva clave es: <strong>$new_password</strong>";
+            $query_pw->execute([':pass' => password_hash($new_password, PASSWORD_DEFAULT), ':tid' => $tid]);
+
+            // Se guarda la clave en texto plano solo para mostrarla una vez al admin
+            $nueva_clave_generada = $new_password;
+            $msg = "Contraseña reseteada con éxito.";
         }
 
         $dbh->commit();
     } catch (Exception $e) {
         $dbh->rollBack();
-        $error = "Error: " . $e->getMessage();
+        $error = "No se pudo completar la operación. Intenta de nuevo.";
     }
+    } // Fin de la validación CSRF
 }
 
 // 2. CONSULTA CON JOIN PARA OBTENER TODO EL CONTEXTO
@@ -105,10 +126,21 @@ $result = $query->fetch(PDO::FETCH_OBJ);
                     
                     <div class="panel">
                         <div class="panel-body">
-                            <?php if($msg){ echo "<div class='alert alert-success'>$msg</div>"; } ?>
-                            <?php if($error){ echo "<div class='alert alert-danger'>$error</div>"; } ?>
+                            <?php if($msg){ ?>
+                                <div class="alert alert-success"><?php echo htmlentities($msg); ?></div>
+                            <?php } ?>
+                            <?php if($nueva_clave_generada){ ?>
+                                <div class="alert alert-info">
+                                    <strong>Nueva contraseña:</strong> <code><?php echo htmlentities($nueva_clave_generada); ?></code>
+                                    <br><small>Anótala y entrégala al docente. No se volverá a mostrar.</small>
+                                </div>
+                            <?php } ?>
+                            <?php if($error){ ?>
+                                <div class="alert alert-danger"><?php echo htmlentities($error); ?></div>
+                            <?php } ?>
 
                             <form method="post">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
                                 <div class="row">
                                     <div class="col-md-6 form-group">
                                         <label>Nombre Completo</label>
@@ -137,7 +169,7 @@ $result = $query->fetch(PDO::FETCH_OBJ);
                                                 Generar Nueva Contraseña
                                             </button>
                                             <p style="font-size: 0.85em; color: #856404; margin-top: 5px;">
-                                                * La clave se guarda cifrada en MD5 en la tabla 'admin'.
+                                                * La clave se guarda cifrada (bcrypt) en la tabla 'admin'.
                                             </p>
                                         </div>
                                     </div>
