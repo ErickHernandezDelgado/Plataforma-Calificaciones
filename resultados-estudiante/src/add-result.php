@@ -95,16 +95,20 @@ if (isset($_POST['submit'])) {
                     $omitidas = 0;
                     $fuera_rango = false;
 
-                    for ($i = 0; $i < count($mark); $i++) {
-                        if ($mark[$i] !== "" && isset($subjectIds[$i])) {
+                    // El array viene indexado por SubjectId (marks[ID]). Solo se aceptan
+                    // SubjectId que pertenezcan al grupo (validación contra $subjectIds).
+                    $validSet = array_flip(array_map('intval', $subjectIds));
+                    $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
+
+                    foreach ($mark as $subjectId => $raw) {
+                        $sid = intval($subjectId);
+                        if ($raw !== "" && isset($validSet[$sid])) {
                             // Validación de rango: la calificación debe ser un entero 0-100
-                            if (!is_numeric($mark[$i]) || intval($mark[$i]) < 0 || intval($mark[$i]) > 100) {
+                            if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {
                                 $fuera_rango = true;
                                 continue;
                             }
-                            $val = intval($mark[$i]);
-                            $sid = intval($subjectIds[$i]);
-                            $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
+                            $val = intval($raw);
 
                             // Salta si ya existe esa calificación (alumno+materia+grupo+período)
                             $dupCheck->execute([':sid' => $studentid, ':subid' => $sid, ':cid' => $class, ':trim' => $trimestre_text]);
@@ -497,11 +501,11 @@ if (isset($_POST['submit'])) {
         var level = $('#classid option:selected').data('level');
         var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
         
-        // Secundaria: trimestres (3). Todos los demás niveles: bimestres (4).
-        if(level === 'secundaria') {
+        // Primaria/secundaria: 3 trimestres. Maternal/kinder/preprimaria: 5 bimestres.
+        if(level === 'primaria' || level === 'secundaria') {
             for(var i=1; i<=3; i++) $t.append(`<option value="2|${i}">Trimestre ${i}</option>`);
         } else {
-            for(var i=1; i<=4; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
+            for(var i=1; i<=5; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
         }
 
         // Carga de la lista de estudiantes

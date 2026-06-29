@@ -39,8 +39,7 @@ $students = $query->fetchAll(PDO::FETCH_OBJ);
 
 $selected_student_id = $_GET['student_id'] ?? ($students[0]->StudentId ?? null);
 $selected_student    = null;
-$student_grades_spanish = [];
-$student_grades_english = [];
+$grades_data            = null;
 $student_notices        = [];
 $pending_notices_count  = 0;
 $current_student_index  = 0;
@@ -62,43 +61,10 @@ if ($selected_student_id) {
         $query->execute();
         $selected_student = $query->fetch(PDO::FETCH_OBJ);
 
-        // Calificaciones ESPAÑOL — 5 términos
-        $sql = "SELECT
-                    subj.SubjectName,
-                    subj.id AS SubjectId,
-                    MAX(CASE WHEN r.term = 1 THEN r.marks END) AS term1,
-                    MAX(CASE WHEN r.term = 2 THEN r.marks END) AS term2,
-                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3,
-                    MAX(CASE WHEN r.term = 4 THEN r.marks END) AS term4,
-                    MAX(CASE WHEN r.term = 5 THEN r.marks END) AS term5
-                FROM tblresult r
-                JOIN tblsubjects subj ON r.SubjectId = subj.id
-                WHERE r.StudentId = :sid AND subj.Language = 'es'
-                GROUP BY subj.id, subj.SubjectName
-                ORDER BY subj.SubjectName ASC";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':sid', $selected_student_id, PDO::PARAM_INT);
-        $query->execute();
-        $student_grades_spanish = $query->fetchAll(PDO::FETCH_OBJ);
-
-        // Calificaciones INGLÉS — 5 términos
-        $sql = "SELECT
-                    subj.SubjectName,
-                    subj.id AS SubjectId,
-                    MAX(CASE WHEN r.term = 1 THEN r.marks END) AS term1,
-                    MAX(CASE WHEN r.term = 2 THEN r.marks END) AS term2,
-                    MAX(CASE WHEN r.term = 3 THEN r.marks END) AS term3,
-                    MAX(CASE WHEN r.term = 4 THEN r.marks END) AS term4,
-                    MAX(CASE WHEN r.term = 5 THEN r.marks END) AS term5
-                FROM tblresult r
-                JOIN tblsubjects subj ON r.SubjectId = subj.id
-                WHERE r.StudentId = :sid AND subj.Language = 'en'
-                GROUP BY subj.id, subj.SubjectName
-                ORDER BY subj.SubjectName ASC";
-        $query = $dbh->prepare($sql);
-        $query->bindParam(':sid', $selected_student_id, PDO::PARAM_INT);
-        $query->execute();
-        $student_grades_english = $query->fetchAll(PDO::FETCH_OBJ);
+        // Calificaciones estructuradas como en la boleta (agrupadas por tipo, con rubros,
+        // periodos por nivel). Pivot por Trimestre texto, no por term.
+        require_once(__DIR__ . '/includes/student-grades-data.php');
+        $grades_data = get_student_grades_data($dbh, (int) $selected_student_id);
 
         // Notificaciones
         $sql = "SELECT
@@ -134,12 +100,6 @@ if ($selected_student_id) {
             }
         }
     }
-}
-
-// Helper para calcular promedio de una fila de calificaciones
-function calcAvg($grade) {
-    $terms = array_filter([$grade->term1, $grade->term2, $grade->term3, $grade->term4, $grade->term5]);
-    return count($terms) > 0 ? array_sum($terms) / count($terms) : 0;
 }
 
 ?>
@@ -1132,182 +1092,168 @@ function calcAvg($grade) {
                 <?php endif; ?>
             </div>
 
-            <!-- CALIFICACIONES — ESPAÑOL -->
+            <!-- CALIFICACIONES (agrupadas como la boleta, por nivel) -->
             <?php
-            $total_spanish = 0; $count_spanish = 0;
-            foreach ($student_grades_spanish as $g) {
-                $avg = calcAvg($g); $total_spanish += $avg; $count_spanish++;
-            }
-            $prom_spanish = $count_spanish > 0 ? number_format($total_spanish / $count_spanish, 1) : null;
+            // Renderiza una tabla de notas (desktop + cards móvil) para un grupo de materias.
+            // $useLetters: true para materias de conducta (E/VG/G/S/N).
+            $np = $grades_data['periodos'] ?? 5;
+            $plabels = $grades_data['period_labels'] ?? ['I','II','III','IV','V'];
+
+            $renderGradeGroup = function (array $subjects, bool $useLetters, string $tableLabel) use ($np, $plabels) {
+                ?>
+                <div class="grades-table-wrapper">
+                    <table class="grades-table" aria-label="<?php echo htmlentities($tableLabel); ?>">
+                        <thead>
+                            <tr>
+                                <th scope="col">Asignatura</th>
+                                <?php for ($i = 1; $i <= $np; $i++): ?>
+                                    <th scope="col"><?php echo htmlentities($plabels[$i-1]); ?></th>
+                                <?php endfor; ?>
+                                <th scope="col"><?php echo $useLetters ? 'Prom.' : 'Prom.'; ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($subjects as $g):
+                                $final = $useLetters ? sg_mode_letter($g['letters']) : sg_avg_numeric($g['marks']);
+                            ?>
+                                <tr class="grade-item-row">
+                                    <td><?php echo htmlentities($g['SubjectName']); ?></td>
+                                    <?php for ($i = 1; $i <= $np; $i++):
+                                        $val = $useLetters ? $g['letters'][$i] : $g['marks'][$i];
+                                    ?>
+                                        <td><?php echo ($val !== null && $val !== '') ? htmlentities((string)$val) : '—'; ?></td>
+                                    <?php endfor; ?>
+                                    <td style="font-weight:800;"><?php echo $final !== '' ? htmlentities($final) : '—'; ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Cards Mobile -->
+                <div class="mobile-grades-list">
+                    <?php foreach ($subjects as $g): ?>
+                        <div class="mobile-grade-card">
+                            <div class="mobile-subject"><?php echo htmlentities($g['SubjectName']); ?></div>
+                            <div class="mobile-grades-row">
+                                <?php for ($i = 1; $i <= $np; $i++):
+                                    $val = $useLetters ? $g['letters'][$i] : $g['marks'][$i];
+                                ?>
+                                    <div class="mobile-grade-unit">
+                                        <span><?php echo htmlentities($plabels[$i-1]); ?></span>
+                                        <span><?php echo ($val !== null && $val !== '') ? htmlentities((string)$val) : '—'; ?></span>
+                                    </div>
+                                <?php endfor; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php
+            };
+
+            // Encabezado de subgrupo dentro de una sección (ej. "Report Card", "Conducta").
+            $groupSubheader = function (string $text) {
+                echo '<p style="margin:20px 0 8px; font-weight:800; font-size:.8rem; letter-spacing:.6px;'
+                   . ' text-transform:uppercase; color:var(--acento); opacity:.7;">' . htmlentities($text) . '</p>';
+            };
+
+            $has_es = !empty($grades_data['es_report']) || !empty($grades_data['es_extra']);
+            $has_en = !empty($grades_data['en_report']) || !empty($grades_data['en_behavior']);
             ?>
+
+            <!-- ===== ESPAÑOL ===== -->
+            <?php if ($has_es): ?>
             <div class="grades-section">
                 <div class="grades-header">
                     <h3 class="section-title">Calificaciones — Español</h3>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <?php if ($prom_spanish !== null): ?>
-                            <span class="promedio-badge">Promedio: <?php echo $prom_spanish; ?></span>
-                        <?php endif; ?>
-                        <?php if (count($student_grades_spanish) > 0): ?>
-                            <button class="grades-toggle-btn"
-                                    data-target="grades-collapsible-es"
-                                    aria-expanded="false"
-                                    aria-controls="grades-collapsible-es">
-                                <span class="toggle-label">Ver materias</span>
-                                <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
-                            </button>
-                        <?php endif; ?>
-                    </div>
+                    <button class="grades-toggle-btn" data-target="grades-collapsible-es"
+                            aria-expanded="false" aria-controls="grades-collapsible-es">
+                        <span class="toggle-label">Ver materias</span>
+                        <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                    </button>
                 </div>
+                <div class="grades-collapsible" id="grades-collapsible-es">
+                    <?php
+                    if (!empty($grades_data['es_report'])) {
+                        if (!empty($grades_data['es_extra'])) $groupSubheader('Asignaturas');
+                        $renderGradeGroup($grades_data['es_report'], false, 'Asignaturas Español');
+                    }
+                    if (!empty($grades_data['es_extra'])) {
+                        $groupSubheader('Asignaturas adicionales');
+                        $renderGradeGroup($grades_data['es_extra'], false, 'Asignaturas adicionales');
+                    }
+                    ?>
 
-                <?php if (count($student_grades_spanish) > 0): ?>
-
-                    <div class="grades-collapsible" id="grades-collapsible-es">
-
-                        <!-- Tabla Desktop -->
-                        <div class="grades-table-wrapper">
-                            <table class="grades-table" aria-label="Calificaciones Español">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Asignatura</th>
-                                        <th scope="col">U1</th>
-                                        <th scope="col">U2</th>
-                                        <th scope="col">U3</th>
-                                        <th scope="col">U4</th>
-                                        <th scope="col">U5</th>
-                                        <th scope="col">Prom.</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($student_grades_spanish as $grade):
-                                        $avg = calcAvg($grade);
-                                    ?>
-                                        <tr class="grade-item-row">
-                                            <td><?php echo htmlentities($grade->SubjectName); ?></td>
-                                            <td><?php echo $grade->term1 !== null ? $grade->term1 : '—'; ?></td>
-                                            <td><?php echo $grade->term2 !== null ? $grade->term2 : '—'; ?></td>
-                                            <td><?php echo $grade->term3 !== null ? $grade->term3 : '—'; ?></td>
-                                            <td><?php echo $grade->term4 !== null ? $grade->term4 : '—'; ?></td>
-                                            <td><?php echo $grade->term5 !== null ? $grade->term5 : '—'; ?></td>
-                                            <td style="font-weight:800;"><?php echo number_format($avg, 1); ?></td>
-                                        </tr>
+                    <?php if ($grades_data['has_rubros']): ?>
+                    <!-- RUBROS OFICIALES -->
+                    <?php $groupSubheader('Rubros oficiales'); ?>
+                    <div class="grades-table-wrapper">
+                        <table class="grades-table" aria-label="Rubros oficiales">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Periodo</th>
+                                    <?php foreach ($grades_data['rubros'] as $nombre => $r): ?>
+                                        <th scope="col"><?php echo htmlentities($nombre); ?></th>
                                     <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Cards Mobile -->
-                        <div class="mobile-grades-list" aria-label="Calificaciones Español (móvil)">
-                            <?php foreach ($student_grades_spanish as $grade): ?>
-                                <div class="mobile-grade-card">
-                                    <div class="mobile-subject"><?php echo htmlentities($grade->SubjectName); ?></div>
-                                    <div class="mobile-grades-row">
-                                        <?php for ($u = 1; $u <= 5; $u++): $key = "term$u"; ?>
-                                            <div class="mobile-grade-unit">
-                                                <span>U<?php echo $u; ?></span>
-                                                <span><?php echo $grade->$key !== null ? $grade->$key : '—'; ?></span>
-                                            </div>
-                                        <?php endfor; ?>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-
-                    </div><!-- /.grades-collapsible -->
-
-                <?php else: ?>
-                    <p style="text-align:center; opacity:.65; padding: 24px 0;">No hay calificaciones en Español registradas aún.</p>
-                <?php endif; ?>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                $rubroFinals = [];
+                                for ($i = 1; $i <= $np; $i++): ?>
+                                    <tr class="grade-item-row">
+                                        <td><?php echo htmlentities($plabels[$i-1]); ?></td>
+                                        <?php foreach ($grades_data['rubros'] as $nombre => $r):
+                                            $avg = sg_rubro_period_avg($r['subjects'], $i);
+                                            if ($avg !== '') $rubroFinals[$nombre][] = $avg;
+                                        ?>
+                                            <td><?php echo $avg !== '' ? htmlentities($avg) : '—'; ?></td>
+                                        <?php endforeach; ?>
+                                    </tr>
+                                <?php endfor; ?>
+                                <tr class="grade-item-row" style="font-weight:800;">
+                                    <td>Promedio</td>
+                                    <?php foreach ($grades_data['rubros'] as $nombre => $r):
+                                        $a = $rubroFinals[$nombre] ?? [];
+                                        echo '<td>' . (count($a) ? round(array_sum($a)/count($a)) : '—') . '</td>';
+                                    endforeach; ?>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
             </div>
+            <?php endif; ?>
 
-            <!-- CALIFICACIONES — INGLÉS -->
-            <?php
-            $total_english = 0; $count_english = 0;
-            foreach ($student_grades_english as $g) {
-                $avg = calcAvg($g); $total_english += $avg; $count_english++;
-            }
-            $prom_english = $count_english > 0 ? number_format($total_english / $count_english, 1) : null;
-            ?>
+            <!-- ===== INGLÉS ===== -->
+            <?php if ($has_en): ?>
             <div class="grades-section">
                 <div class="grades-header">
                     <h3 class="section-title">Calificaciones — Inglés</h3>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <?php if ($prom_english !== null): ?>
-                            <span class="promedio-badge">Promedio: <?php echo $prom_english; ?></span>
-                        <?php endif; ?>
-                        <?php if (count($student_grades_english) > 0): ?>
-                            <button class="grades-toggle-btn"
-                                    data-target="grades-collapsible-en"
-                                    aria-expanded="false"
-                                    aria-controls="grades-collapsible-en">
-                                Ver materias
-                                <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
-                            </button>
-                        <?php endif; ?>
-                    </div>
+                    <button class="grades-toggle-btn" data-target="grades-collapsible-en"
+                            aria-expanded="false" aria-controls="grades-collapsible-en">
+                        <span class="toggle-label">Ver materias</span>
+                        <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                    </button>
                 </div>
-
-                <?php if (count($student_grades_english) > 0): ?>
-
-                    <div class="grades-collapsible" id="grades-collapsible-en">
-
-                        <!-- Tabla Desktop -->
-                        <div class="grades-table-wrapper">
-                            <table class="grades-table" aria-label="Calificaciones Inglés">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Asignatura</th>
-                                        <th scope="col">U1</th>
-                                        <th scope="col">U2</th>
-                                        <th scope="col">U3</th>
-                                        <th scope="col">U4</th>
-                                        <th scope="col">U5</th>
-                                        <th scope="col">Prom.</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($student_grades_english as $grade):
-                                        $avg = calcAvg($grade);
-                                    ?>
-                                        <tr class="grade-item-row">
-                                            <td><?php echo htmlentities($grade->SubjectName); ?></td>
-                                            <td><?php echo $grade->term1 !== null ? $grade->term1 : '—'; ?></td>
-                                            <td><?php echo $grade->term2 !== null ? $grade->term2 : '—'; ?></td>
-                                            <td><?php echo $grade->term3 !== null ? $grade->term3 : '—'; ?></td>
-                                            <td><?php echo $grade->term4 !== null ? $grade->term4 : '—'; ?></td>
-                                            <td><?php echo $grade->term5 !== null ? $grade->term5 : '—'; ?></td>
-                                            <td style="font-weight:800;"><?php echo number_format($avg, 1); ?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Cards Mobile -->
-                        <div class="mobile-grades-list" aria-label="Calificaciones Inglés (móvil)">
-                            <?php foreach ($student_grades_english as $grade): ?>
-                                <div class="mobile-grade-card">
-                                    <div class="mobile-subject"><?php echo htmlentities($grade->SubjectName); ?></div>
-                                    <div class="mobile-grades-row">
-                                        <?php for ($u = 1; $u <= 5; $u++): $key = "term$u"; ?>
-                                            <div class="mobile-grade-unit">
-                                                <span>U<?php echo $u; ?></span>
-                                                <span><?php echo $grade->$key !== null ? $grade->$key : '—'; ?></span>
-                                            </div>
-                                        <?php endfor; ?>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-
-                    </div><!-- /.grades-collapsible -->
-
-                <?php else: ?>
-                    <p style="text-align:center; opacity:.65; padding: 24px 0;">No hay calificaciones en Inglés registradas aún.</p>
-                <?php endif; ?>
+                <div class="grades-collapsible" id="grades-collapsible-en">
+                    <?php
+                    if (!empty($grades_data['en_report'])) {
+                        if (!empty($grades_data['en_behavior'])) $groupSubheader('Report Card');
+                        $renderGradeGroup($grades_data['en_report'], false, 'Report Card');
+                    }
+                    if (!empty($grades_data['en_behavior'])) {
+                        $groupSubheader('Behavior Observations (E / VG / G / S / N)');
+                        $renderGradeGroup($grades_data['en_behavior'], true, 'Behavior Observations');
+                    }
+                    ?>
+                </div>
             </div>
+            <?php endif; ?>
 
             <!-- BOTÓN ÚNICO DE BOLETA COMPLETA -->
-            <?php if (count($student_grades_spanish) > 0 || count($student_grades_english) > 0): ?>
+            <?php if ($has_es || $has_en): ?>
             <div class="action-bar" style="justify-content:center; padding-bottom: 8px;">
                 <a href="generate-student-pdf.php?student_id=<?php echo $selected_student_id; ?>"
                    target="_blank" class="btn-pdf btn-pdf-large" aria-label="Descargar boleta completa en PDF">

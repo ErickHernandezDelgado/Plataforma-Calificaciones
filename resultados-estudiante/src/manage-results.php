@@ -27,7 +27,8 @@ if (isset($_POST['update_marks'])) {
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
     } else {
-        $mark_ids = $_POST['mark_id'] ?? [];
+        // mark_value viene indexado por mark_id (mark_value[ID]). El español no tiene
+        // notas de conducta, así que solo procesa números.
         $mark_values = $_POST['mark_value'] ?? [];
         $fuera_rango = false;
 
@@ -45,9 +46,8 @@ if (isset($_POST['update_marks'])) {
         try {
             $dbh->beginTransaction();
 
-            foreach ($mark_ids as $idx => $mark_id) {
+            foreach ($mark_values as $mark_id => $raw) {
                 $mark_id = intval($mark_id);
-                $raw = $mark_values[$idx] ?? '';
 
                 // Validación de rango: la calificación debe ser un entero 0-100
                 if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {

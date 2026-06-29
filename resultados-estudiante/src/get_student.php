@@ -39,14 +39,17 @@ if (!empty($_POST["classid1"])) {
     $stmt_period->execute([':classid' => $classid1]);
     $period_info = $stmt_period->fetch(PDO::FETCH_ASSOC);
 
-    // Determinar tipo de período basado en educationLevel
-    // Secundaria: trimestres (3). Todos los demás niveles: bimestres (4).
+    // Determinar tipo de período basado en educationLevel.
+    // Primaria y secundaria: 3 trimestres. Maternal/kinder/preprimaria: 5 bimestres.
+    $level = $period_info['educationLevel'] ?? null;
+    $isTrimestral = in_array($level, ['primaria', 'secundaria'], true);
+    $numPeriodos  = $isTrimestral ? 3 : 5;
     $label = ($lang == 'en') ? "Subjects" : "Materias";
     if ($period_info) {
-        if ($period_info['educationLevel'] === 'secundaria') {
+        if ($isTrimestral) {
             $label = ($lang == 'en') ? "Subjects (3 Trimesters)" : "Trimestrales (3 períodos)";
         } else {
-            $label = ($lang == 'en') ? "Subjects (4 Bimonthly)" : "Bimestrales (4 períodos)";
+            $label = ($lang == 'en') ? "Subjects (5 Bimonthly)" : "Bimestrales (5 períodos)";
         }
     }
 
@@ -57,7 +60,7 @@ if (!empty($_POST["classid1"])) {
 
     if ($session_role === 'teacher' && $session_teacherid) {
         // Maestro: solo materias asignadas en tblteacher_subject para este grupo
-        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
+        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId, subject_type
                                 FROM tblsubjects
                                 WHERE id IN (
                                     SELECT SubjectId FROM tblsubjectcombination
@@ -68,34 +71,93 @@ if (!empty($_POST["classid1"])) {
                                     WHERE TeacherId = :tid AND ClassId = :id
                                 )
                                 AND Language = :lang
-                                ORDER BY SubjectName");
+                                ORDER BY id");
         $stmt2->execute([':id' => $classid1, ':tid' => $session_teacherid, ':lang' => $lang_filter]);
     } else {
         // Admin: todas las materias del grupo
-        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId
+        $stmt2 = $dbh->prepare("SELECT SubjectName, id as SubjectId, subject_type
                                 FROM tblsubjects
                                 WHERE id IN (
                                     SELECT SubjectId FROM tblsubjectcombination
                                     WHERE ClassId = :id AND status = 1
                                 )
                                 AND Language = :lang
-                                ORDER BY SubjectName");
+                                ORDER BY id");
         $stmt2->execute([':id' => $classid1, ':lang' => $lang_filter]);
     }
     $subjects = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
     if (count($subjects) > 0) {
         echo '<h5 class="form-section-title">Carga Académica (' . htmlentities($label) . '):</h5>';
-        
+
+        // Cada input lleva el SubjectId EN EL NAME (marks[ID] / letters[ID]) para que el
+        // guardado no dependa del orden de la lista. Las materias 'behavior' se califican
+        // con letra (E/VG/G/S/N); el resto con número 0-100.
+        // Se AGRUPA por subject_type igual que en la boleta: normales, conducta (letra),
+        // y adicionales (extras), en el orden en que aparecen en la boleta.
+        $letter_options = ['', 'E', 'VG', 'G', 'S', 'N'];
+
+        // Repartir en grupos.
+        $g_normal = [];
+        $g_behavior = [];
+        $g_extra = [];
         foreach ($subjects as $subject) {
+            $t = $subject['subject_type'] ?? 'normal';
+            if ($t === 'behavior')      $g_behavior[] = $subject;
+            elseif ($t === 'extra')     $g_extra[] = $subject;
+            else                        $g_normal[] = $subject;
+        }
+
+        // Renderiza una materia (número o letra según tipo).
+        $renderSubject = function ($subject) use ($letter_options, $lang) {
+            $sid = (int) $subject['SubjectId'];
             echo '<div class="row" style="margin-bottom:15px;">
                     <div class="col-md-8">
                         <p style="margin-top:7px; font-weight:600;">' . htmlentities($subject['SubjectName']) . '</p>
                     </div>
-                    <div class="col-md-4">
-                        <input type="number" name="marks[]" class="form-control" placeholder="0-100" min="0" max="100" step="1" required>
-                    </div>
+                    <div class="col-md-4">';
+            if (($subject['subject_type'] ?? 'normal') === 'behavior') {
+                echo '<select name="letters[' . $sid . ']" class="form-control">';
+                foreach ($letter_options as $opt) {
+                    $lbl = $opt === '' ? (($lang == 'en') ? '-- Select --' : '-- Seleccionar --') : $opt;
+                    echo '<option value="' . htmlentities($opt) . '">' . htmlentities($lbl) . '</option>';
+                }
+                echo '</select>';
+            } else {
+                echo '<input type="number" name="marks[' . $sid . ']" class="form-control" placeholder="0-100" min="0" max="100" step="1">';
+            }
+            echo '</div>
                   </div>';
+        };
+
+        // Encabezado de grupo (estilo discreto, separa secciones).
+        $groupHeader = function ($text) {
+            echo '<p style="margin:18px 0 10px; padding-bottom:5px; border-bottom:1px solid #e2e8f0;'
+               . ' font-weight:800; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#64748b;">'
+               . htmlentities($text) . '</p>';
+        };
+
+        // Títulos por idioma, alineados con la boleta.
+        if ($lang == 'en') {
+            // Inglés: Report Card (número) + Behavior Observations (letra).
+            if ($g_normal) {
+                $groupHeader('Report Card');
+                foreach ($g_normal as $s) $renderSubject($s);
+            }
+            if ($g_behavior) {
+                $groupHeader('Behavior Observations (E / VG / G / S / N)');
+                foreach ($g_behavior as $s) $renderSubject($s);
+            }
+        } else {
+            // Español: materias + adicionales (extras). Si hay extras se titulan ambos grupos.
+            if ($g_normal) {
+                if ($g_extra) $groupHeader('Asignaturas');
+                foreach ($g_normal as $s) $renderSubject($s);
+            }
+            if ($g_extra) {
+                $groupHeader('Asignaturas adicionales');
+                foreach ($g_extra as $s) $renderSubject($s);
+            }
         }
     } else {
         $no_subjects_msg = ($lang == 'en') ? 'No subjects assigned to this class.' : 'No hay materias asignadas a este grupo.';
