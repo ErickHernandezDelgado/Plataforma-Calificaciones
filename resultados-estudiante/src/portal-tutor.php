@@ -151,7 +151,7 @@ if ($selected_student_id) {
         ===================================================== */
         .hero-section {
             width: 100%;
-            min-height: 100vh;
+            min-height: 42vh;
             position: relative;
             display: flex;
             flex-direction: column;
@@ -274,6 +274,14 @@ if ($selected_student_id) {
             gap: 48px;
         }
 
+        /* Orden de secciones: datos -> calificaciones -> notificaciones.
+           El tutor entra principalmente a ver notas, así que van antes que los avisos.
+           Se reordena con flexbox sin mover el HTML. */
+        .student-info-section { order: 1; }
+        .grades-section        { order: 2; }
+        .action-bar            { order: 3; }
+        .notices-section       { order: 4; }
+
         /* =====================================================
            DATOS DEL ALUMNO
         ===================================================== */
@@ -362,53 +370,63 @@ if ($selected_student_id) {
         /* Tabla desktop */
         .grades-table-wrapper {
             width: 100%;
-            overflow-x: auto;
-            border-radius: var(--radius);
+            overflow: hidden;
+            border-radius: 12px;
+            box-shadow: var(--sombra);
+            margin-bottom: 8px;
         }
 
         .grades-table {
             width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 10px;
+            border-collapse: collapse;
         }
 
+        /* Tabla con fondo claro: más legible para consultar muchas materias.
+           El color institucional se usa como acento (cabecera, promedio), no como
+           fondo de cada celda. */
+        .grades-table { border-spacing: 0; }
+
         .grades-table thead th {
-            color: var(--acento);
-            opacity: .6;
+            color: var(--blanco);
+            background: var(--acento);
             font-weight: 700;
-            font-size: .8rem;
-            padding: 6px 16px;
+            font-size: .78rem;
+            padding: 12px 14px;
             text-transform: uppercase;
             letter-spacing: .5px;
             text-align: center;
         }
-
-        .grades-table thead th:first-child { text-align: left; }
+        .grades-table thead th:first-child { text-align: left; border-radius: 10px 0 0 0; }
+        .grades-table thead th:last-child  { border-radius: 0 10px 0 0; }
 
         .grade-item-row td {
-            padding: 18px 16px;
-            color: var(--blanco);
-            font-size: 1rem;
+            padding: 13px 14px;
+            color: var(--acento);
+            background: var(--blanco);
+            font-size: .95rem;
             text-align: center;
-            transition: filter .2s;
+            border-bottom: 1px solid #E6EFE9;
+            transition: background .15s;
         }
 
-        .grade-item-row:hover td { filter: brightness(1.08); }
+        .grade-item-row:hover td { background: var(--fondo-card); }
 
         .grade-item-row td:first-child {
-            border-radius: 14px 0 0 14px;
-            padding-left: 28px;
+            padding-left: 20px;
             text-align: left;
             width: 38%;
+            font-weight: 600;
         }
 
-        .grade-item-row td:last-child { border-radius: 0 14px 14px 0; }
+        /* Celda de promedio final destacada con el verde institucional */
+        .grade-item-row td:last-child {
+            font-weight: 800;
+            color: var(--verde-dark);
+            background: var(--fondo-card);
+        }
 
-        .grade-item-row:nth-child(odd) td  { background: var(--verde); }
-        .grade-item-row:nth-child(even) td { background: var(--acento); }
-
-        /* Calificación baja en rojo */
-        .grade-low { color: #FFD0D0; font-weight: 700; }
+        /* Periodos sin nota: gris tenue para no competir con los datos reales */
+        .grade-empty { color: #B8C4BD; }
 
         /* Mobile cards de calificaciones */
         .mobile-grades-list { display: none; }
@@ -464,8 +482,6 @@ if ($selected_student_id) {
         /* =====================================================
            NOTIFICACIONES
         ===================================================== */
-        .notices-section {}
-
         .notices-header {
             display: flex;
             align-items: center;
@@ -875,12 +891,13 @@ if ($selected_student_id) {
             .grades-toggle-btn i.chevron { transition: transform .25s; }
             .grades-toggle-btn.open i.chevron { transform: rotate(180deg); }
 
-            /* El cuerpo colapsable: oculto por defecto en móvil */
+            /* En móvil las calificaciones se muestran ABIERTAS por defecto (es el dato
+               principal). El botón permite colapsarlas si el tutor quiere. */
             .grades-collapsible {
-                display: none;
-            }
-            .grades-collapsible.open {
                 display: block;
+            }
+            .grades-collapsible.collapsed {
+                display: none;
             }
 
             .mobile-grades-list {
@@ -1099,6 +1116,21 @@ if ($selected_student_id) {
             $np = $grades_data['periodos'] ?? 5;
             $plabels = $grades_data['period_labels'] ?? ['I','II','III','IV','V'];
 
+            // Promedio general de un conjunto de materias numéricas = promedio de sus
+            // promedios finales (solo materias con al menos una nota). null si ninguna.
+            $generalAvg = function (array $groups): ?string {
+                $finals = [];
+                foreach ($groups as $subjects) {
+                    foreach ($subjects as $s) {
+                        $f = sg_avg_numeric($s['marks']);
+                        if ($f !== '') $finals[] = (float) $f;
+                    }
+                }
+                return count($finals) ? number_format(array_sum($finals) / count($finals), 1) : null;
+            };
+            $prom_es = $generalAvg([$grades_data['es_report']]);              // extras no promedian
+            $prom_en = $generalAvg([$grades_data['en_report']]);             // behavior no promedia
+
             $renderGradeGroup = function (array $subjects, bool $useLetters, string $tableLabel) use ($np, $plabels) {
                 ?>
                 <div class="grades-table-wrapper">
@@ -1107,9 +1139,9 @@ if ($selected_student_id) {
                             <tr>
                                 <th scope="col">Asignatura</th>
                                 <?php for ($i = 1; $i <= $np; $i++): ?>
-                                    <th scope="col"><?php echo htmlentities($plabels[$i-1]); ?></th>
+                                    <th scope="col" title="<?php echo $i; ?>° periodo"><?php echo htmlentities($plabels[$i-1]); ?></th>
                                 <?php endfor; ?>
-                                <th scope="col"><?php echo $useLetters ? 'Prom.' : 'Prom.'; ?></th>
+                                <th scope="col">Prom.</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1120,10 +1152,11 @@ if ($selected_student_id) {
                                     <td><?php echo htmlentities($g['SubjectName']); ?></td>
                                     <?php for ($i = 1; $i <= $np; $i++):
                                         $val = $useLetters ? $g['letters'][$i] : $g['marks'][$i];
+                                        $empty = ($val === null || $val === '');
                                     ?>
-                                        <td><?php echo ($val !== null && $val !== '') ? htmlentities((string)$val) : '—'; ?></td>
+                                        <td<?php echo $empty ? ' class="grade-empty"' : ''; ?>><?php echo $empty ? '—' : htmlentities((string)$val); ?></td>
                                     <?php endfor; ?>
-                                    <td style="font-weight:800;"><?php echo $final !== '' ? htmlentities($final) : '—'; ?></td>
+                                    <td><?php echo $final !== '' ? htmlentities($final) : '—'; ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -1166,11 +1199,16 @@ if ($selected_student_id) {
             <div class="grades-section">
                 <div class="grades-header">
                     <h3 class="section-title">Calificaciones — Español</h3>
-                    <button class="grades-toggle-btn" data-target="grades-collapsible-es"
-                            aria-expanded="false" aria-controls="grades-collapsible-es">
-                        <span class="toggle-label">Ver materias</span>
-                        <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
-                    </button>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <?php if ($prom_es !== null): ?>
+                            <span class="promedio-badge">Promedio general: <?php echo $prom_es; ?></span>
+                        <?php endif; ?>
+                        <button class="grades-toggle-btn" data-target="grades-collapsible-es"
+                                aria-expanded="false" aria-controls="grades-collapsible-es">
+                            <span class="toggle-label">Ver materias</span>
+                            <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="grades-collapsible" id="grades-collapsible-es">
                     <?php
@@ -1231,11 +1269,16 @@ if ($selected_student_id) {
             <div class="grades-section">
                 <div class="grades-header">
                     <h3 class="section-title">Calificaciones — Inglés</h3>
-                    <button class="grades-toggle-btn" data-target="grades-collapsible-en"
-                            aria-expanded="false" aria-controls="grades-collapsible-en">
-                        <span class="toggle-label">Ver materias</span>
-                        <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
-                    </button>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <?php if ($prom_en !== null): ?>
+                            <span class="promedio-badge">Promedio general: <?php echo $prom_en; ?></span>
+                        <?php endif; ?>
+                        <button class="grades-toggle-btn" data-target="grades-collapsible-en"
+                                aria-expanded="false" aria-controls="grades-collapsible-en">
+                            <span class="toggle-label">Ver materias</span>
+                            <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="grades-collapsible" id="grades-collapsible-en">
                     <?php
@@ -1478,12 +1521,19 @@ if ($selected_student_id) {
            TOGGLE COLAPSABLE DE CALIFICACIONES (solo activo en móvil)
         ============================================================= */
         document.querySelectorAll('.grades-toggle-btn').forEach(function (btn) {
+            // Estado inicial: abierto (las calificaciones se muestran por defecto).
+            btn.classList.add('open');
+            btn.setAttribute('aria-expanded', true);
+            var lbl0 = btn.querySelector('.toggle-label');
+            if (lbl0) lbl0.textContent = 'Ocultar';
+
             btn.addEventListener('click', function () {
                 var targetId   = btn.dataset.target;
                 var collapsible = document.getElementById(targetId);
                 if (!collapsible) return;
 
-                var isOpen = collapsible.classList.toggle('open');
+                var isCollapsed = collapsible.classList.toggle('collapsed');
+                var isOpen = !isCollapsed;
                 btn.classList.toggle('open', isOpen);
                 btn.setAttribute('aria-expanded', isOpen);
                 var lbl = btn.querySelector('.toggle-label');
