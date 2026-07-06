@@ -27,14 +27,15 @@ if (empty($_SESSION['csrf_token'])) {
 if (isset($_POST['submit'])) {
     $class = intval($_POST['class']);
     $studentid = intval($_POST['studentid']);
-    $mark = $_POST['marks'] ?? []; // Array de calificaciones
+    $mark = $_POST['marks'] ?? []; // Array de calificaciones numéricas
+    $letters = $_POST['letters'] ?? []; // Array de calificaciones-letra (maternal / behavior)
     $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type|term_number"
 
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
     } elseif (empty($periodo_data)) {
         $error = "Por favor selecciona un trimestre/bimestre.";
-    } elseif (empty($mark)) {
+    } elseif (empty($mark) && empty($letters)) {
         $error = "No hay materias asignadas a este grupo.";
     } else {
         // Parsear del formato "1|1" (Bimestre 1) o "2|3" (Trimestre 3)
@@ -75,6 +76,14 @@ if (isset($_POST['submit'])) {
                 $stmt->execute([':cid' => $class, ':lang' => 'es']);
             }
             $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Nivel del grupo: en maternal las notas van en LETRA (grade_letter), no número.
+            $lvlStmt = $dbh->prepare("SELECT educationLevel FROM tblclasses WHERE id = :cid");
+            $lvlStmt->execute([':cid' => $class]);
+            $grupoLevel = $lvlStmt->fetchColumn();
+            $isMaternal = ($grupoLevel === 'maternal');
+            // Escala de letras válida para el español de maternal.
+            $letras_validas_es = ['E', 'MB', 'B', 'S', 'I'];
 
             // Verifica que el alumno exista y pertenezca al grupo indicado
             $chkStudent = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE StudentId = :sid AND ClassId = :cid");
@@ -131,10 +140,48 @@ if (isset($_POST['submit'])) {
                             $guardadas++;
                         }
                     }
+
+                    // MATERNAL (o cualquier materia enviada como letra): guardar en grade_letter.
+                    // En maternal el español se califica con la escala E/MB/B/S/I; marks queda NULL.
+                    $letra_invalida = false;
+                    foreach ($letters as $subjectId => $raw) {
+                        $sid = intval($subjectId);
+                        $L = strtoupper(trim((string) $raw));
+                        if ($L !== "" && isset($validSet[$sid])) {
+                            // Solo se aceptan letras de la escala española de maternal.
+                            if (!in_array($L, $letras_validas_es, true)) {
+                                $letra_invalida = true;
+                                continue;
+                            }
+                            // Salta si ya existe esa calificación (alumno+materia+grupo+período)
+                            $dupCheck->execute([':sid' => $studentid, ':subid' => $sid, ':cid' => $class, ':trim' => $trimestre_text]);
+                            if ((int)$dupCheck->fetchColumn() > 0) {
+                                $omitidas++;
+                                continue;
+                            }
+
+                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, grade_letter, Trimestre, term, PostingDate)
+                                    VALUES(:studentid, :classid, :subjectid, NULL, :gl, :trimestre, :term, NOW())";
+                            $query = $dbh->prepare($sql);
+                            $query->execute([
+                                ':studentid' => $studentid,
+                                ':classid' => $class,
+                                ':subjectid' => $sid,
+                                ':gl' => $L,
+                                ':trimestre' => $trimestre_text,
+                                ':term' => $term_number
+                            ]);
+                            $guardadas++;
+                        }
+                    }
+
                     $dbh->commit();
 
                     if ($fuera_rango) {
                         $error = "Algunas calificaciones estaban fuera del rango 0-100 y no se guardaron.";
+                    }
+                    if ($letra_invalida) {
+                        $error = "Algunas calificaciones tenían una letra fuera de la escala (E/MB/B/S/I) y no se guardaron.";
                     }
                     $msg = "Resultados guardados: {$guardadas}." . ($omitidas > 0 ? " {$omitidas} ya existían y se omitieron." : "");
                 } catch (PDOException $e) {
@@ -431,7 +478,12 @@ if (isset($_POST['submit'])) {
                                                                 <select name="class" class="form-control clid" id="classid" onChange="getPeriodos(this.value);" required>
                                                                     <option value="">Seleccionar...</option>
                                                                     <?php
-                                                                    $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
+                                                                    // Orden pedagógico: maternal → kinder → preprimaria → primaria → secundaria,
+                                                                    // luego por número de grado y sección.
+                                                                    $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses
+                                                                            ORDER BY AcademicYear DESC,
+                                                                                     FIELD(educationLevel,'maternal','kinder','preprimaria','primaria','secundaria'),
+                                                                                     ClassNameNumeric ASC, Section ASC";
                                                                     $query = $dbh->prepare($sql);
                                                                     $query->execute();
                                                                     foreach ($query->fetchAll(PDO::FETCH_OBJ) as $result) { ?>

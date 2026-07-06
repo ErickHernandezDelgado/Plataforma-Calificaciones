@@ -20,9 +20,9 @@ if (isset($_POST['login'])) {
     $username = trim($_POST['username']);
     $password = $_POST['password'];
 
-    // Buscar al usuario
-    $sql = "SELECT id, UserName, Password, role, teacher_id 
-            FROM admin 
+    // 1) Buscar primero en admin (admin, docentes y tutores con su correo personal).
+    $sql = "SELECT id, UserName, Password, role, teacher_id
+            FROM admin
             WHERE UserName = :username
             LIMIT 1";
     $query = $dbh->prepare($sql);
@@ -30,6 +30,38 @@ if (isset($_POST['login'])) {
     $query->execute();
 
     $user = $query->fetch(PDO::FETCH_OBJ);
+
+    // 2) Si no está en admin, intentar como CORREO DE ALUMNO: el tutor entra con el correo
+    //    de su hijo. Se resuelve el/los tutor(es) del alumno (CanViewGrades=1) y se valida
+    //    la contraseña contra alguno de ellos. La sesión se abre como ese tutor, así el
+    //    portal muestra TODOS sus hijos (no solo el del correo usado).
+    if (!$user) {
+        $sqlStu = "SELECT a.id, a.UserName, a.Password, a.role, a.teacher_id
+                   FROM tblstudents s
+                   JOIN student_tutor st ON st.StudentId = s.StudentId AND st.CanViewGrades = 1
+                   JOIN admin a ON a.id = st.TutorId AND a.role = 'tutor'
+                   WHERE s.StudentEmail = :email AND s.Status = 1";
+        $qStu = $dbh->prepare($sqlStu);
+        $qStu->bindParam(':email', $username, PDO::PARAM_STR);
+        $qStu->execute();
+        // Un alumno puede tener varios tutores (padre/madre): valida contra cada uno.
+        foreach ($qStu->fetchAll(PDO::FETCH_OBJ) as $tutorCand) {
+            if (password_verify($password, $tutorCand->Password) || md5($password) === $tutorCand->Password) {
+                $user = $tutorCand;
+                break;
+            }
+        }
+        // Si encontró tutor válido por esta vía, saltar la verificación de contraseña de abajo
+        // (ya se validó). Se marca con una bandera.
+        if ($user) {
+            $_SESSION['alogin'] = $user->UserName;
+            $_SESSION['role'] = 'tutor';
+            $_SESSION['id'] = $user->id;
+            $_SESSION['tutorid'] = $user->id;
+            header("Location: portal-tutor.php");
+            exit;
+        }
+    }
 
     // Verificar contraseña (password_hash + md5 legacy)
     if ($user && (password_verify($password, $user->Password) || md5($password) === $user->Password)) {
@@ -50,6 +82,17 @@ if (isset($_POST['login'])) {
 
             case 'teacher':
                 if (!is_null($user->teacher_id)) {
+                    // Bloquea el acceso si la cuenta del docente está desactivada (Status=0).
+                    // Permite dar de baja a un docente sin borrarlo (conserva su historial).
+                    $chkStatus = $dbh->prepare("SELECT Status FROM tblteachers WHERE Id = :tid");
+                    $chkStatus->execute([':tid' => $user->teacher_id]);
+                    $teacherStatus = $chkStatus->fetchColumn();
+                    if ($teacherStatus !== false && (int)$teacherStatus === 0) {
+                        // Limpia las variables de sesión ya asignadas arriba y no redirige.
+                        $_SESSION = [];
+                        $msg = "Tu cuenta está desactivada. Contacta al instituto.";
+                        break;
+                    }
                     $_SESSION['teacherid'] = $user->teacher_id;
                     $_SESSION['role'] = 'teacher';
                     $_SESSION['id'] = $user->id;

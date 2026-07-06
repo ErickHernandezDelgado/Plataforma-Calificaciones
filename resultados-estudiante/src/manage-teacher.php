@@ -7,6 +7,36 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
     exit;
 } else {
+
+    $msg = '';
+    $error = '';
+
+    // Token CSRF para las acciones POST.
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    // --- ACCIÓN: Activar/Desactivar docente (Status 1<->0) ---
+    // Desactivar bloquea su login (index.php lo verifica) pero conserva su historial
+    // y sus asignaciones. Reversible.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'toggle_status') {
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } else {
+            $tid = intval($_POST['teacher_id'] ?? 0);
+            $nuevo = (intval($_POST['nuevo_status'] ?? 0) === 1) ? 1 : 0;
+            $upd = $dbh->prepare("UPDATE tblteachers SET Status = :st WHERE Id = :id");
+            $upd->bindParam(':st', $nuevo, PDO::PARAM_INT);
+            $upd->bindParam(':id', $tid, PDO::PARAM_INT);
+            if ($upd->execute() && $upd->rowCount() >= 0) {
+                $msg = $nuevo === 1
+                    ? "Docente reactivado. Ya puede iniciar sesión."
+                    : "Docente desactivado. Su acceso queda bloqueado (el historial se conserva).";
+            } else {
+                $error = "No se pudo actualizar el estado del docente.";
+            }
+        }
+    }
 ?>
 
 <link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
@@ -119,6 +149,12 @@ table.table thead th {
                                 </div>
 
                                 <div class="panel-body p-20">
+                                    <?php if ($msg): ?>
+                                        <div class="alert alert-success"><strong><i class="fa fa-check-circle"></i> </strong><?php echo htmlentities($msg); ?></div>
+                                    <?php endif; ?>
+                                    <?php if ($error): ?>
+                                        <div class="alert alert-danger"><strong><i class="fa fa-times-circle"></i> </strong><?php echo htmlentities($error); ?></div>
+                                    <?php endif; ?>
                                     <table id="example" class="display table table-striped table-hover table-bordered" cellspacing="0" width="100%">
                                         <thead>
                                             <tr>
@@ -176,6 +212,21 @@ table.table thead th {
                                                             <a href="edit-teacher.php?tid=<?php echo $result->Id; ?>" class="btn btn-primary btn-sm btn-action">
                                                                 <i class="fa fa-edit"></i> Editar
                                                             </a>
+                                                            <?php $activo = ($result->Status == 1); ?>
+                                                            <form method="post" action="manage-teacher.php" style="display:inline;"
+                                                                  onsubmit="return confirm('<?php echo $activo
+                                                                      ? "¿Desactivar a este docente? No podrá iniciar sesión hasta que lo reactives."
+                                                                      : "¿Reactivar a este docente? Podrá volver a iniciar sesión."; ?>')">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                                <input type="hidden" name="accion" value="toggle_status">
+                                                                <input type="hidden" name="teacher_id" value="<?php echo (int)$result->Id; ?>">
+                                                                <input type="hidden" name="nuevo_status" value="<?php echo $activo ? 0 : 1; ?>">
+                                                                <button type="submit" class="btn btn-sm btn-action <?php echo $activo ? 'btn-danger' : 'btn-success'; ?>"
+                                                                        title="<?php echo $activo ? 'Desactivar acceso' : 'Reactivar acceso'; ?>">
+                                                                    <i class="fa <?php echo $activo ? 'fa-ban' : 'fa-check-circle'; ?>"></i>
+                                                                    <?php echo $activo ? 'Desactivar' : 'Reactivar'; ?>
+                                                                </button>
+                                                            </form>
                                                         </td>
                                                     </tr>
                                             <?php $cnt++; } } ?>

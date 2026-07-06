@@ -74,6 +74,28 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
         }
     }
 
+    // --- LÓGICA DE ACTIVAR/DESACTIVAR ESTUDIANTE (Status 1<->0, POST + CSRF) ---
+    // Un alumno desactivado deja de aparecer en captura de notas y en el portal del tutor,
+    // pero su historial y calificaciones se conservan. Reversible.
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'toggle_status') {
+        if (!$csrf_ok) {
+            $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+        } else {
+            $stid  = intval($_POST['stid'] ?? 0);
+            $nuevo = (intval($_POST['nuevo_status'] ?? 0) === 1) ? 1 : 0;
+            $upd = $dbh->prepare("UPDATE tblstudents SET Status = :st WHERE StudentId = :id");
+            $upd->bindParam(':st', $nuevo, PDO::PARAM_INT);
+            $upd->bindParam(':id', $stid, PDO::PARAM_INT);
+            if ($upd->execute()) {
+                $msg = $nuevo === 1
+                    ? "Estudiante reactivado. Vuelve a aparecer en el sistema."
+                    : "Estudiante desactivado. Ya no aparece en captura ni en el portal del tutor (el historial se conserva).";
+            } else {
+                $error = "No se pudo actualizar el estado del estudiante.";
+            }
+        }
+    }
+
     $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : date('Y');
 
     $sql_years = "SELECT DISTINCT AcademicYear FROM tblclasses ORDER BY AcademicYear DESC";
@@ -87,12 +109,22 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
 <head>
     <link rel="stylesheet" type="text/css" href="assets/js/DataTables/datatables.min.css" />
     <style>
-        .btn-reset { background-color: #f59e0b; color: white; margin-left: 4px; }
+        .btn-reset { background-color: #f59e0b; color: white; }
         .btn-reset:hover { background-color: #d97706; color: white; }
-        .btn-delete { background-color: #dc2626; color: white; margin-left: 4px; }
+        .btn-delete { background-color: #dc2626; color: white; }
         .btn-delete:hover { background-color: #991b1b; color: white; }
         .alert-success { border-left: 5px solid #15803d; font-size: 16px; }
         .alert-danger { border-left: 5px solid #b91c1c; font-size: 16px; }
+
+        /* Alinea los botones de acción en una fila uniforme (mismo tamaño y separación). */
+        .acciones-cell { white-space: nowrap; }
+        .acciones-group { display: inline-flex; gap: 6px; justify-content: flex-end; }
+        .acciones-group form { display: inline; margin: 0; }
+        .acciones-group .btn-action {
+            width: 40px; height: 38px; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            margin: 0; border-radius: 6px; font-size: 15px;
+        }
     </style>
 </head>
 <body>
@@ -196,7 +228,8 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                                             <?php echo ($result->Status == 1) ? 'ACTIVO' : 'BLOQUEADO'; ?>
                                                         </span>
                                                     </td>
-                                                    <td class="text-right">
+                                                    <td class="text-right acciones-cell">
+                                                        <div class="acciones-group">
                                                         <a href="edit-student.php?stid=<?php echo $result->StudentId; ?>" class="btn btn-info btn-action" title="Editar">
                                                             <i class="fa fa-pencil"></i>
                                                         </a>
@@ -213,6 +246,21 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                                             </form>
                                                         <?php } ?>
 
+                                                        <?php $stActivo = ($result->Status == 1); ?>
+                                                        <form method="post" action="manage-students.php" style="display:inline;"
+                                                              onsubmit="return confirm('<?php echo $stActivo
+                                                                  ? "¿Desactivar a este alumno? Dejará de aparecer en captura de notas y en el portal del tutor. El historial se conserva."
+                                                                  : "¿Reactivar a este alumno? Volverá a aparecer en el sistema."; ?>')">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                                            <input type="hidden" name="accion" value="toggle_status">
+                                                            <input type="hidden" name="stid" value="<?php echo (int)$result->StudentId; ?>">
+                                                            <input type="hidden" name="nuevo_status" value="<?php echo $stActivo ? 0 : 1; ?>">
+                                                            <button type="submit" class="btn btn-action <?php echo $stActivo ? 'btn-warning' : 'btn-success'; ?>"
+                                                                    title="<?php echo $stActivo ? 'Desactivar alumno' : 'Reactivar alumno'; ?>">
+                                                                <i class="fa <?php echo $stActivo ? 'fa-ban' : 'fa-check-circle'; ?>"></i>
+                                                            </button>
+                                                        </form>
+
                                                         <form method="post" action="manage-students.php" style="display:inline;"
                                                               onsubmit="return confirm('¿Realmente deseas eliminar a este estudiante? Si tiene calificaciones registradas, el sistema lo impedirá. Esta acción no se puede deshacer.')">
                                                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
@@ -222,6 +270,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                                                 <i class="fa fa-trash"></i>
                                                             </button>
                                                         </form>
+                                                        </div><!-- /.acciones-group -->
                                                     </td>
                                                 </tr>
                                             <?php } ?>

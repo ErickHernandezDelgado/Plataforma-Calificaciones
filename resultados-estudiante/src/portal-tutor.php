@@ -991,6 +991,7 @@ if ($selected_student_id) {
                 <span class="student-counter"><?php echo ($current_student_index + 1) . ' / ' . $total_students; ?></span>
             <?php endif; ?>
 
+            <a href="tutor-change-password.php" class="logout-link" style="margin-top:0;">Cambiar contraseña</a>
             <a href="logout.php" class="logout-link">Cerrar sesión</a>
         </div>
 
@@ -1192,6 +1193,9 @@ if ($selected_student_id) {
 
             $has_es = !empty($grades_data['es_report']) || !empty($grades_data['es_extra']);
             $has_en = !empty($grades_data['en_report']) || !empty($grades_data['en_behavior']);
+            // En maternal TODAS las materias se califican con letra (no número), así que
+            // las tablas de español e inglés report card se renderizan con letras.
+            $isMaternal = (($grades_data['level'] ?? '') === 'maternal');
             ?>
 
             <!-- ===== ESPAÑOL ===== -->
@@ -1214,11 +1218,13 @@ if ($selected_student_id) {
                     <?php
                     if (!empty($grades_data['es_report'])) {
                         if (!empty($grades_data['es_extra'])) $groupSubheader('Asignaturas');
-                        $renderGradeGroup($grades_data['es_report'], false, 'Asignaturas Español');
+                        $renderGradeGroup($grades_data['es_report'], $isMaternal, 'Asignaturas Español');
                     }
                     if (!empty($grades_data['es_extra'])) {
                         $groupSubheader('Asignaturas adicionales');
-                        $renderGradeGroup($grades_data['es_extra'], false, 'Asignaturas adicionales');
+                        // Las asignaturas extra (Trabajo en plataforma, Conducta) van SIEMPRE en
+                        // letra (escala E/MB/B/S/I), en cualquier nivel — no en número.
+                        $renderGradeGroup($grades_data['es_extra'], true, 'Asignaturas adicionales');
                     }
                     ?>
 
@@ -1284,7 +1290,7 @@ if ($selected_student_id) {
                     <?php
                     if (!empty($grades_data['en_report'])) {
                         if (!empty($grades_data['en_behavior'])) $groupSubheader('Report Card');
-                        $renderGradeGroup($grades_data['en_report'], false, 'Report Card');
+                        $renderGradeGroup($grades_data['en_report'], $isMaternal, 'Report Card');
                     }
                     if (!empty($grades_data['en_behavior'])) {
                         $groupSubheader('Behavior Observations (E / VG / G / S / N)');

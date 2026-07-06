@@ -27,10 +27,15 @@ if (isset($_POST['update_marks'])) {
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
     } else {
-        // mark_value viene indexado por mark_id (mark_value[ID]). El español no tiene
-        // notas de conducta, así que solo procesa números.
-        $mark_values = $_POST['mark_value'] ?? [];
+        // mark_value viene indexado por mark_id (mark_value[ID]) para notas numéricas.
+        // letter_value[ID] llega cuando la materia se califica con letra (MATERNAL: todo el
+        // español va en letra E/MB/B/S/I).
+        $mark_values   = $_POST['mark_value'] ?? [];
+        $letter_values = $_POST['letter_value'] ?? [];
         $fuera_rango = false;
+        $letra_invalida = false;
+        // Escala válida de letras para el español de maternal.
+        $letras_validas_es = ['E', 'MB', 'B', 'S', 'I'];
 
         // Si es docente, solo puede actualizar notas de SUS materias.
         // Se prepara un verificador de propiedad por mark_id.
@@ -64,15 +69,43 @@ if (isset($_POST['update_marks'])) {
                     }
                 }
 
-                $sql = "UPDATE tblresult SET marks = :marks WHERE id = :id";
+                $sql = "UPDATE tblresult SET marks = :marks, grade_letter = NULL WHERE id = :id";
                 $stmt = $dbh->prepare($sql);
                 $stmt->execute([':marks' => $mark_value, ':id' => $mark_id]);
             }
 
+            // Notas-letra (maternal español): se guardan en grade_letter, marks a NULL.
+            foreach ($letter_values as $mark_id => $raw) {
+                $mark_id = intval($mark_id);
+                $L = strtoupper(trim((string) $raw));
+                if ($L === '') {
+                    continue; // Sin cambio (selector vacío)
+                }
+                if (!in_array($L, $letras_validas_es, true)) {
+                    $letra_invalida = true;
+                    continue;
+                }
+
+                // Un docente solo edita notas de sus materias
+                if ($ownCheck !== null) {
+                    $ownCheck->execute([':id' => $mark_id, ':tid' => $teacherId]);
+                    if ((int)$ownCheck->fetchColumn() === 0) {
+                        continue;
+                    }
+                }
+
+                $stmt = $dbh->prepare("UPDATE tblresult SET grade_letter = :gl, marks = NULL WHERE id = :id");
+                $stmt->execute([':gl' => $L, ':id' => $mark_id]);
+            }
+
             $dbh->commit();
-            $msg = $fuera_rango
-                ? "Calificaciones actualizadas. Algunas estaban fuera del rango 0-100 y no se guardaron."
-                : "Calificaciones actualizadas correctamente.";
+            $msg = "Calificaciones actualizadas correctamente.";
+            if ($fuera_rango) {
+                $msg = "Calificaciones actualizadas. Algunas estaban fuera del rango 0-100 y no se guardaron.";
+            }
+            if ($letra_invalida) {
+                $msg = "Calificaciones actualizadas. Algunas letras estaban fuera de la escala (E/MB/B/S/I) y no se guardaron.";
+            }
         } catch (PDOException $e) {
             if ($dbh->inTransaction()) $dbh->rollBack();
             $error = "Error al actualizar las calificaciones. Intenta de nuevo.";
@@ -462,7 +495,12 @@ if (isset($_POST['update_marks'])) {
                                                         <select id="classid" name="classid" class="form-control" required onChange="getStudents(this.value);">
                                                             <option value="">-- Selecciona un grupo --</option>
                                                             <?php
-                                                            $sql = "SELECT id, ClassName, Section FROM tblclasses ORDER BY AcademicYear DESC, ClassName ASC";
+                                                            // Orden pedagógico: maternal → kinder → preprimaria → primaria → secundaria,
+                                                            // luego por número de grado y sección.
+                                                            $sql = "SELECT id, ClassName, Section FROM tblclasses
+                                                                    ORDER BY AcademicYear DESC,
+                                                                             FIELD(educationLevel,'maternal','kinder','preprimaria','primaria','secundaria'),
+                                                                             ClassNameNumeric ASC, Section ASC";
                                                             $query = $dbh->prepare($sql);
                                                             $query->execute();
                                                             foreach ($query->fetchAll(PDO::FETCH_OBJ) as $class) { ?>

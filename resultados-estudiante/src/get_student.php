@@ -93,9 +93,27 @@ if (!empty($_POST["classid1"])) {
         // Cada input lleva el SubjectId EN EL NAME (marks[ID] / letters[ID]) para que el
         // guardado no dependa del orden de la lista. Las materias 'behavior' se califican
         // con letra (E/VG/G/S/N); el resto con número 0-100.
+        // EXCEPCIÓN por nivel: en MATERNAL todas las materias van en LETRAS (la boleta oficial
+        // es toda cualitativa). La escala depende del idioma: español E/MB/B/S/I, inglés E/VG/G/S/N.
         // Se AGRUPA por subject_type igual que en la boleta: normales, conducta (letra),
         // y adicionales (extras), en el orden en que aparecen en la boleta.
-        $letter_options = ['', 'E', 'VG', 'G', 'S', 'N'];
+        $isMaternal = ($level === 'maternal');
+        $letter_options    = ['', 'E', 'VG', 'G', 'S', 'N'];        // escala inglesa (behavior + inglés maternal)
+        $letter_options_es = ['', 'E', 'MB', 'B', 'S', 'I'];        // escala española (maternal español)
+
+        // ¿Esta materia se captura con letra? behavior y extra SIEMPRE; en maternal, todas.
+        $usaLetra = function ($subject) use ($isMaternal) {
+            $t = $subject['subject_type'] ?? 'normal';
+            return $isMaternal || $t === 'behavior' || $t === 'extra';
+        };
+        // Escala de letras según tipo/idioma.
+        // Behavior es siempre inglés (E/VG/G/S/N). Extras y español (maternal) usan E/MB/B/S/I.
+        $escalaDe = function ($subject) use ($lang, $letter_options, $letter_options_es) {
+            $t = $subject['subject_type'] ?? 'normal';
+            if ($t === 'behavior') return $letter_options;
+            if ($t === 'extra')    return $letter_options_es;   // extras: escala española
+            return ($lang === 'es') ? $letter_options_es : $letter_options;
+        };
 
         // Repartir en grupos.
         $g_normal = [];
@@ -108,17 +126,18 @@ if (!empty($_POST["classid1"])) {
             else                        $g_normal[] = $subject;
         }
 
-        // Renderiza una materia (número o letra según tipo).
-        $renderSubject = function ($subject) use ($letter_options, $lang) {
+        // Renderiza una materia (número o letra según tipo/nivel).
+        $renderSubject = function ($subject) use ($usaLetra, $escalaDe, $lang) {
             $sid = (int) $subject['SubjectId'];
             echo '<div class="row" style="margin-bottom:15px;">
                     <div class="col-md-8">
                         <p style="margin-top:7px; font-weight:600;">' . htmlentities($subject['SubjectName']) . '</p>
                     </div>
                     <div class="col-md-4">';
-            if (($subject['subject_type'] ?? 'normal') === 'behavior') {
+            if ($usaLetra($subject)) {
+                $opts = $escalaDe($subject);
                 echo '<select name="letters[' . $sid . ']" class="form-control">';
-                foreach ($letter_options as $opt) {
+                foreach ($opts as $opt) {
                     $lbl = $opt === '' ? (($lang == 'en') ? '-- Select --' : '-- Seleccionar --') : $opt;
                     echo '<option value="' . htmlentities($opt) . '">' . htmlentities($lbl) . '</option>';
                 }
@@ -137,11 +156,11 @@ if (!empty($_POST["classid1"])) {
                . htmlentities($text) . '</p>';
         };
 
-        // Títulos por idioma, alineados con la boleta.
+        // Títulos por idioma, alineados con la boleta. En maternal se indica la escala de letras.
         if ($lang == 'en') {
-            // Inglés: Report Card (número) + Behavior Observations (letra).
+            // Inglés: Report Card (número, o letra E/VG/G/S/N en maternal) + Behavior (letra).
             if ($g_normal) {
-                $groupHeader('Report Card');
+                $groupHeader($isMaternal ? 'Report Card (E / VG / G / S / N)' : 'Report Card');
                 foreach ($g_normal as $s) $renderSubject($s);
             }
             if ($g_behavior) {
@@ -149,13 +168,15 @@ if (!empty($_POST["classid1"])) {
                 foreach ($g_behavior as $s) $renderSubject($s);
             }
         } else {
-            // Español: materias + adicionales (extras). Si hay extras se titulan ambos grupos.
+            // Español: materias + adicionales (extras). En maternal la escala es E/MB/B/S/I.
             if ($g_normal) {
-                if ($g_extra) $groupHeader('Asignaturas');
+                if ($isMaternal)   $groupHeader('Asignaturas (E / MB / B / S / I)');
+                elseif ($g_extra)  $groupHeader('Asignaturas');
                 foreach ($g_normal as $s) $renderSubject($s);
             }
             if ($g_extra) {
-                $groupHeader('Asignaturas adicionales');
+                // Los extras (Trabajo en plataforma, Conducta) van en letra E/MB/B/S/I.
+                $groupHeader('Asignaturas adicionales (E / MB / B / S / I)');
                 foreach ($g_extra as $s) $renderSubject($s);
             }
         }
