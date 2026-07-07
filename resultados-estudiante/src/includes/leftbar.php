@@ -65,6 +65,7 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <ul class="child-nav">
                         <li><a href="add-result.php"><i class="fa fa-plus"></i> <span>+ Agregar Resultado (Período Dinámico)</span></a></li>
                         <li><a href="manage-results.php"><i class="fa fa-list"></i> <span>Gestionar Calificaciones</span></a></li>
+                        <li><a href="cierre-periodos.php"><i class="fa fa-lock"></i> <span>Cierre de Periodos</span></a></li>
                     </ul>
                 </li>
 
@@ -83,6 +84,15 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     <ul class="child-nav">
                         <li><a href="add-notice.php"><i class="fa fa-plus"></i> <span>Agregar Comunicado</span></a></li>
                         <li><a href="manage-notices.php"><i class="fa fa-bars"></i> <span>Gestionar Comunicado</span></a></li>
+                    </ul>
+                </li>
+
+                <!-- Menú para la generación de boletas oficiales y reportes (solo admin) -->
+                <li class="has-children">
+                    <a href="#"><i class="fa fa-file-pdf-o"></i> <span>Boletas</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <ul class="child-nav">
+                        <li><a href="generar-boletas.php"><i class="fa fa-id-card-o"></i> <span>Generar Boletas</span></a></li>
+                        <li><a href="generar-reporte.php"><i class="fa fa-table"></i> <span>Generar Reporte</span></a></li>
                     </ul>
                 </li>
             </ul>

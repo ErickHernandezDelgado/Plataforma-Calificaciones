@@ -1302,7 +1302,12 @@ if ($selected_student_id) {
             <?php endif; ?>
 
             <!-- BOTÓN ÚNICO DE BOLETA COMPLETA -->
-            <?php if ($has_es || $has_en): ?>
+            <!--
+                OCULTO (decisión 2026-07-06): el tutor NO puede generar boletas; solo el admin.
+                El código y generate-student-pdf.php se conservan intactos por si se reactiva.
+                Para reactivarlo, cambia `false` por la condición original `($has_es || $has_en)`.
+            -->
+            <?php if (false && ($has_es || $has_en)): ?>
             <div class="action-bar" style="justify-content:center; padding-bottom: 8px;">
                 <a href="generate-student-pdf.php?student_id=<?php echo $selected_student_id; ?>"
                    target="_blank" class="btn-pdf btn-pdf-large" aria-label="Descargar boleta completa en PDF">

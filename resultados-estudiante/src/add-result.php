@@ -6,6 +6,7 @@
  */
 
 include(__DIR__ . '/includes/check-login.php');
+require_once(__DIR__ . '/includes/result-audit.php'); // P2: auto-cierre del periodo al guardar
 
 // Verificación de Sesión y rol.
 // Esta pantalla es compartida por admin y docentes; ambos pueden capturar notas.
@@ -23,170 +24,187 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// PROCESAMIENTO DEL FORMULARIO
+// PROCESAMIENTO DEL FORMULARIO — CAPTURA POR GRUPO COMPLETO (P1).
+// Los arrays vienen indexados por [studentId][subjectId]: marks[sid][subj] (número)
+// y letters[sid][subj] (letra). Reglas: exigir TODAS las celdas llenas, SOBREESCRIBIR
+// las existentes (auditando el cambio), y AUTO-CERRAR el grupo+periodo si es docente.
 if (isset($_POST['submit'])) {
-    $class = intval($_POST['class']);
-    $studentid = intval($_POST['studentid']);
-    $mark = $_POST['marks'] ?? []; // Array de calificaciones numéricas
-    $letters = $_POST['letters'] ?? []; // Array de calificaciones-letra (maternal / behavior)
-    $periodo_data = $_POST['periodo_data'] ?? null; // Recibe formato "period_type|term_number"
+    $class        = intval($_POST['class'] ?? 0);
+    $marksIn      = $_POST['marks']   ?? []; // [studentId][subjectId] => nota numérica
+    $lettersIn    = $_POST['letters'] ?? []; // [studentId][subjectId] => letra
+    $periodo_data = $_POST['periodo_data'] ?? null; // "period_type|term_number"
+
+    $session_role      = $_SESSION['role']      ?? null;
+    $session_teacherid = $_SESSION['teacherid'] ?? null;
 
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif ($class <= 0) {
+        $error = "Selecciona un grupo.";
     } elseif (empty($periodo_data)) {
-        $error = "Por favor selecciona un trimestre/bimestre.";
-    } elseif (empty($mark) && empty($letters)) {
-        $error = "No hay materias asignadas a este grupo.";
+        $error = "Por favor selecciona un período.";
+    } elseif (empty($marksIn) && empty($lettersIn)) {
+        $error = "No se recibió ninguna calificación. Carga el grupo primero.";
     } else {
-        // Parsear del formato "1|1" (Bimestre 1) o "2|3" (Trimestre 3)
         $periodo_parts = explode("|", $periodo_data);
-        $period_type = intval($periodo_parts[0] ?? 0);  // 1=Bimestre, 2=Trimestre
-        $term_number = intval($periodo_parts[1] ?? 0);  // 1-5 o 1-3
+        $period_type = intval($periodo_parts[0] ?? 0);
+        $term_number = intval($periodo_parts[1] ?? 0);
 
         if ($period_type == 0 || $term_number == 0) {
             $error = "Período inválido.";
         } else {
-            // 1. Obtener materias asignadas a la clase (filtradas por ESPAÑOL)
-            $session_role      = $_SESSION['role']      ?? null;
-            $session_teacherid = $_SESSION['teacherid'] ?? null;
+            $trimestre_text = ($period_type == 1) ? "Bimestre {$term_number}" : "Trimestre {$term_number}";
 
-            if ($session_role === 'teacher' && $session_teacherid) {
-                $stmt = $dbh->prepare("SELECT id
-                                       FROM tblsubjects
-                                       WHERE id IN (
-                                           SELECT SubjectId FROM tblsubjectcombination
-                                           WHERE ClassId = :cid AND status = 1
-                                       )
-                                       AND id IN (
-                                           SELECT SubjectId FROM tblteacher_subject
-                                           WHERE TeacherId = :tid AND ClassId = :cid
-                                       )
-                                       AND Language = :lang
-                                       ORDER BY SubjectName");
-                $stmt->execute([':cid' => $class, ':tid' => $session_teacherid, ':lang' => 'es']);
-            } else {
-                $stmt = $dbh->prepare("SELECT id
-                                       FROM tblsubjects
-                                       WHERE id IN (
-                                           SELECT SubjectId FROM tblsubjectcombination
-                                           WHERE ClassId = :cid AND status = 1
-                                       )
-                                       AND Language = :lang
-                                       ORDER BY SubjectName");
-                $stmt->execute([':cid' => $class, ':lang' => 'es']);
-            }
-            $subjectIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-            // Nivel del grupo: en maternal las notas van en LETRA (grade_letter), no número.
+            // Nivel del grupo (para la escala de letras en maternal).
             $lvlStmt = $dbh->prepare("SELECT educationLevel FROM tblclasses WHERE id = :cid");
             $lvlStmt->execute([':cid' => $class]);
             $grupoLevel = $lvlStmt->fetchColumn();
             $isMaternal = ($grupoLevel === 'maternal');
-            // Escala de letras válida para el español de maternal.
-            $letras_validas_es = ['E', 'MB', 'B', 'S', 'I'];
 
-            // Verifica que el alumno exista y pertenezca al grupo indicado
-            $chkStudent = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE StudentId = :sid AND ClassId = :cid");
-            $chkStudent->execute([':sid' => $studentid, ':cid' => $class]);
-
-            if (empty($subjectIds)) {
-                $error = "No hay materias asignadas a este grupo.";
-            } elseif (!$chkStudent->fetch()) {
-                $error = "El alumno seleccionado no pertenece a este grupo.";
+            // Materias VÁLIDAS del grupo (del docente si teacher; todas si admin), en ES.
+            // Sirve para: (a) validar SubjectId recibidos, (b) saber cuántas celdas se exigen.
+            if ($session_role === 'teacher' && $session_teacherid) {
+                $stmt = $dbh->prepare(
+                    "SELECT id, subject_type FROM tblsubjects
+                     WHERE id IN (SELECT SubjectId FROM tblsubjectcombination WHERE ClassId = :cid AND status = 1)
+                       AND id IN (SELECT SubjectId FROM tblteacher_subject WHERE TeacherId = :tid AND ClassId = :cid)
+                       AND Language = 'es' ORDER BY id"
+                );
+                $stmt->execute([':cid' => $class, ':tid' => $session_teacherid]);
             } else {
-                // Prepara una verificación de duplicados (mismo alumno+materia+período).
-                // Se compara por el texto Trimestre para distinguir "Bimestre N" de "Trimestre N".
-                $dupCheck = $dbh->prepare("SELECT COUNT(*) FROM tblresult WHERE StudentId = :sid AND SubjectId = :subid AND ClassId = :cid AND Trimestre = :trim");
+                $stmt = $dbh->prepare(
+                    "SELECT id, subject_type FROM tblsubjects
+                     WHERE id IN (SELECT SubjectId FROM tblsubjectcombination WHERE ClassId = :cid AND status = 1)
+                       AND Language = 'es' ORDER BY id"
+                );
+                $stmt->execute([':cid' => $class]);
+            }
+            $subjectRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $subjectType = [];                    // subjectId => tipo
+            foreach ($subjectRows as $sr) { $subjectType[(int)$sr['id']] = $sr['subject_type'] ?? 'normal'; }
+            $validSubjects = array_keys($subjectType);
 
-                $dbh->beginTransaction();
-                try {
-                    $guardadas = 0;
-                    $omitidas = 0;
-                    $fuera_rango = false;
+            // Alumnos activos del grupo (las filas que se exigen).
+            $alStmt = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE ClassId = :cid AND Status = 1");
+            $alStmt->execute([':cid' => $class]);
+            $validStudents = array_map('intval', $alStmt->fetchAll(PDO::FETCH_COLUMN));
 
-                    // El array viene indexado por SubjectId (marks[ID]). Solo se aceptan
-                    // SubjectId que pertenezcan al grupo (validación contra $subjectIds).
-                    $validSet = array_flip(array_map('intval', $subjectIds));
-                    $trimestre_text = ($period_type == 1) ? "Bimestre " . $term_number : "Trimestre " . $term_number;
+            // Escala de letras según tipo/idioma (materia ES).
+            $escalaValida = function (int $subId) use ($subjectType): array {
+                $t = $subjectType[$subId] ?? 'normal';
+                if ($t === 'behavior') return ['E','VG','G','S','N'];
+                if ($t === 'extra')    return ['E','MB','B','S','I'];
+                // normal (maternal): letra española.
+                return ['E','MB','B','S','I'];
+            };
+            // ¿Esta materia se captura con letra?
+            $usaLetra = function (int $subId) use ($subjectType, $isMaternal): bool {
+                $t = $subjectType[$subId] ?? 'normal';
+                return $isMaternal || $t === 'behavior' || $t === 'extra';
+            };
 
-                    foreach ($mark as $subjectId => $raw) {
-                        $sid = intval($subjectId);
-                        if ($raw !== "" && isset($validSet[$sid])) {
-                            // Validación de rango: la calificación debe ser un entero 0-100
-                            if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {
-                                $fuera_rango = true;
-                                continue;
-                            }
-                            $val = intval($raw);
+            // Candado: si es DOCENTE y el período está cerrado, no puede capturar aquí.
+            // El admin sí puede (sobrescribe con aviso), igual que en la edición.
+            $periodoCerrado = period_is_locked($dbh, (int)$class, $trimestre_text);
 
-                            // Salta si ya existe esa calificación (alumno+materia+grupo+período)
-                            $dupCheck->execute([':sid' => $studentid, ':subid' => $sid, ':cid' => $class, ':trim' => $trimestre_text]);
-                            if ((int)$dupCheck->fetchColumn() > 0) {
-                                $omitidas++;
-                                continue;
-                            }
+            if (empty($validSubjects)) {
+                $error = "No hay materias asignadas a este grupo.";
+            } elseif (empty($validStudents)) {
+                $error = "No hay alumnos activos en este grupo.";
+            } elseif ($session_role === 'teacher' && $periodoCerrado) {
+                $error = "Este período está cerrado y no se guardó ningún cambio. Solo el administrador puede reabrirlo.";
+            } else {
+                // ── 1) VALIDACIÓN: todas las celdas llenas y válidas (antes de tocar la BD) ──
+                $faltantes = 0;
+                $fueraRango = false;
+                $letraInvalida = false;
+                // celdas[sid][subj] = ['tipo'=>'num'|'let', 'val'=>...]
+                $celdas = [];
 
-                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, Trimestre, term, PostingDate)
-                                    VALUES(:studentid, :classid, :subjectid, :marks, :trimestre, :term, NOW())";
-                            $query = $dbh->prepare($sql);
-                            $query->execute([
-                                ':studentid' => $studentid,
-                                ':classid' => $class,
-                                ':subjectid' => $sid,
-                                ':marks' => $val,
-                                ':trimestre' => $trimestre_text,
-                                ':term' => $term_number
-                            ]);
-                            $guardadas++;
+                foreach ($validStudents as $sid) {
+                    foreach ($validSubjects as $subId) {
+                        if ($usaLetra($subId)) {
+                            $raw = $lettersIn[$sid][$subId] ?? '';
+                            $L = strtoupper(trim((string)$raw));
+                            if ($L === '') { $faltantes++; continue; }
+                            if (!in_array($L, $escalaValida($subId), true)) { $letraInvalida = true; continue; }
+                            $celdas[$sid][$subId] = ['tipo' => 'let', 'val' => $L];
+                        } else {
+                            $raw = $marksIn[$sid][$subId] ?? '';
+                            if ($raw === '' || $raw === null) { $faltantes++; continue; }
+                            if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) { $fueraRango = true; continue; }
+                            $celdas[$sid][$subId] = ['tipo' => 'num', 'val' => intval($raw)];
                         }
                     }
+                }
 
-                    // MATERNAL (o cualquier materia enviada como letra): guardar en grade_letter.
-                    // En maternal el español se califica con la escala E/MB/B/S/I; marks queda NULL.
-                    $letra_invalida = false;
-                    foreach ($letters as $subjectId => $raw) {
-                        $sid = intval($subjectId);
-                        $L = strtoupper(trim((string) $raw));
-                        if ($L !== "" && isset($validSet[$sid])) {
-                            // Solo se aceptan letras de la escala española de maternal.
-                            if (!in_array($L, $letras_validas_es, true)) {
-                                $letra_invalida = true;
-                                continue;
-                            }
-                            // Salta si ya existe esa calificación (alumno+materia+grupo+período)
-                            $dupCheck->execute([':sid' => $studentid, ':subid' => $sid, ':cid' => $class, ':trim' => $trimestre_text]);
-                            if ((int)$dupCheck->fetchColumn() > 0) {
-                                $omitidas++;
-                                continue;
-                            }
+                if ($faltantes > 0) {
+                    $error = "Faltan {$faltantes} celda(s) por capturar. Debes llenar la nota de TODOS los alumnos en TODAS las materias antes de guardar.";
+                } elseif ($fueraRango) {
+                    $error = "Hay calificaciones fuera del rango 0-100. Corrígelas antes de guardar.";
+                } elseif ($letraInvalida) {
+                    $error = "Hay letras fuera de la escala permitida. Corrígelas antes de guardar.";
+                } else {
+                    // ── 2) GUARDADO: sobreescribe existentes (auditando) o inserta nuevas ──
+                    $existsStmt = $dbh->prepare(
+                        "SELECT id, StudentId, ClassId, SubjectId, Trimestre, marks, grade_letter
+                         FROM tblresult WHERE StudentId = :sid AND SubjectId = :subid AND ClassId = :cid AND Trimestre = :trim"
+                    );
+                    $insStmt = $dbh->prepare(
+                        "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, grade_letter, Trimestre, term, PostingDate)
+                         VALUES(:sid, :cid, :subid, :marks, :gl, :trim, :term, NOW())"
+                    );
 
-                            $sql = "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, grade_letter, Trimestre, term, PostingDate)
-                                    VALUES(:studentid, :classid, :subjectid, NULL, :gl, :trimestre, :term, NOW())";
-                            $query = $dbh->prepare($sql);
-                            $query->execute([
-                                ':studentid' => $studentid,
-                                ':classid' => $class,
-                                ':subjectid' => $sid,
-                                ':gl' => $L,
-                                ':trimestre' => $trimestre_text,
-                                ':term' => $term_number
-                            ]);
-                            $guardadas++;
+                    $dbh->beginTransaction();
+                    try {
+                        $nuevas = 0;
+                        $actualizadas = 0;
+
+                        foreach ($celdas as $sid => $porMateria) {
+                            foreach ($porMateria as $subId => $c) {
+                                $newMarks  = ($c['tipo'] === 'num') ? $c['val'] : null;
+                                $newLetter = ($c['tipo'] === 'let') ? $c['val'] : null;
+
+                                $existsStmt->execute([':sid' => $sid, ':subid' => $subId, ':cid' => $class, ':trim' => $trimestre_text]);
+                                $old = $existsStmt->fetch(PDO::FETCH_ASSOC);
+
+                                if ($old) {
+                                    // Sobreescribe solo si cambió; audita el cambio (rastro P2).
+                                    $changed = ((int)$old['marks'] !== (int)$newMarks && !($old['marks'] === null && $newMarks === null))
+                                            || ((string)$old['grade_letter'] !== (string)$newLetter);
+                                    if ($changed) {
+                                        $upd = $dbh->prepare("UPDATE tblresult SET marks = :m, grade_letter = :gl WHERE id = :id");
+                                        $upd->execute([':m' => $newMarks, ':gl' => $newLetter, ':id' => (int)$old['id']]);
+                                        log_result_change($dbh, (int)$old['id'], $old, $newMarks, $newLetter);
+                                        $actualizadas++;
+                                    }
+                                } else {
+                                    $insStmt->execute([
+                                        ':sid' => $sid, ':cid' => $class, ':subid' => $subId,
+                                        ':marks' => $newMarks, ':gl' => $newLetter,
+                                        ':trim' => $trimestre_text, ':term' => $term_number,
+                                    ]);
+                                    $nuevas++;
+                                }
+                            }
                         }
-                    }
 
-                    $dbh->commit();
+                        // Auto-cierre: si un DOCENTE guarda el grupo completo, se cierra el periodo.
+                        if ($session_role === 'teacher') {
+                            set_period_lock($dbh, (int)$class, $trimestre_text, 1, 'auto', true);
+                        }
 
-                    if ($fuera_rango) {
-                        $error = "Algunas calificaciones estaban fuera del rango 0-100 y no se guardaron.";
+                        $dbh->commit();
+
+                        $msg = "Calificaciones guardadas. Nuevas: {$nuevas}"
+                             . ($actualizadas > 0 ? ", actualizadas: {$actualizadas}" : "") . ".";
+                        if ($session_role === 'teacher') {
+                            $msg .= " El periodo quedó cerrado; para corregir, pide al administrador que lo reabra.";
+                        }
+                    } catch (PDOException $e) {
+                        if ($dbh->inTransaction()) $dbh->rollBack();
+                        $error = "Error al guardar las calificaciones. Intenta de nuevo.";
                     }
-                    if ($letra_invalida) {
-                        $error = "Algunas calificaciones tenían una letra fuera de la escala (E/MB/B/S/I) y no se guardaron.";
-                    }
-                    $msg = "Resultados guardados: {$guardadas}." . ($omitidas > 0 ? " {$omitidas} ya existían y se omitieron." : "");
-                } catch (PDOException $e) {
-                    if ($dbh->inTransaction()) $dbh->rollBack();
-                    $error = "Error al guardar las calificaciones. Intenta de nuevo.";
                 }
             }
         }
@@ -505,29 +523,18 @@ if (isset($_POST['submit'])) {
                                                     </div>
                                                 </div>
 
-                                                <div class="form-section">
-                                                    <span class="form-section-title">2. Estudiante</span>
-                                                    <div class="form-group">
-                                                        <label>Nombre del Alumno</label>
-                                                        <select name="studentid" class="form-control stid" id="studentid" required onChange="getresult(this.value);">
-                                                            <option value="">Esperando grupo...</option>
-                                                        </select>
-                                                    </div>
-                                                    <div id="reslt"></div>
-                                                </div>
-
                                                 <div class="form-section" style="border-bottom: none;">
-                                                    <span class="form-section-title">3. Registro de Materias</span>
-                                                    <div id="subject" class="subject-container">
-                                                        <p class="text-center text-muted m-0">Selecciona un grupo para cargar la carga académica.</p>
+                                                    <span class="form-section-title">2. Calificaciones del Grupo</span>
+                                                    <div id="grid" class="subject-container">
+                                                        <p class="text-center text-muted m-0">Selecciona grupo y período para cargar a todos los alumnos.</p>
                                                     </div>
                                                 </div>
 
                                                 <div class="p-25">
                                                     <div class="row">
-                                                        <div class="col-md-4 col-md-offset-4">
-                                                            <button type="submit" name="submit" id="submit" class="btn-save">
-                                                                <i class="fa fa-save"></i> Guardar Calificaciones
+                                                        <div class="col-md-6 col-md-offset-3">
+                                                            <button type="submit" name="submit" id="submit" class="btn-save" disabled>
+                                                                <i class="fa fa-save"></i> Guardar Calificaciones del Grupo
                                                             </button>
                                                         </div>
                                                     </div>
@@ -547,72 +554,52 @@ if (isset($_POST['submit'])) {
     <script src="js/jquery/jquery-2.2.4.min.js"></script>
     <script src="js/bootstrap/bootstrap.min.js"></script>
     <script>
-    
+    // Al elegir grupo: genera los períodos según el nivel y (re)carga la matriz.
     function getPeriodos(val) {
-        // Obtenemos el nivel desde el atributo data-level del option seleccionado
         var level = $('#classid option:selected').data('level');
         var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
-        
+
         // Primaria/secundaria: 3 trimestres. Maternal/kinder/preprimaria: 5 bimestres.
-        if(level === 'primaria' || level === 'secundaria') {
-            for(var i=1; i<=3; i++) $t.append(`<option value="2|${i}">Trimestre ${i}</option>`);
+        if (level === 'primaria' || level === 'secundaria') {
+            for (var i = 1; i <= 3; i++) $t.append('<option value="2|' + i + '">Trimestre ' + i + '</option>');
         } else {
-            for(var i=1; i<=5; i++) $t.append(`<option value="1|${i}">Bimestre ${i}</option>`);
+            for (var i = 1; i <= 5; i++) $t.append('<option value="1|' + i + '">Bimestre ' + i + '</option>');
         }
-
-        // Carga de la lista de estudiantes
-        $.post("get_student.php?lang=es", {classid: val}, function(data) {
-            $("#studentid").html(data);
-        });
-
-        // Carga de los inputs de materias
-        $.post("get_student.php?lang=es", {classid1: val}, function(data) {
-            $("#subject").html(data);
-        });
+        // Cambió el grupo: limpiar la matriz hasta que se elija período.
+        $('#grid').html('<p class="text-center text-muted m-0">Selecciona el período para cargar a los alumnos.</p>');
+        $('#submit').attr('disabled', true);
     }
 
-    function getresult(val) {
-        var cid = $("#classid").val();
-        var periodo = $("#periodo_data").val();
+    // Carga la matriz alumnos × materias del grupo+período elegidos (captura por grupo).
+    function loadGrid() {
+        var cid = $('#classid').val();
+        var periodo = $('#periodo_data').val();
 
-        // Limpia el aviso previo y rehabilita el botón antes de revalidar,
-        // para que al cambiar de período no quede el estado anterior pegado.
-        $("#reslt").html("");
-        $("#submit").attr("disabled", false);
-
-        if (val === "" || periodo === "") {
+        if (cid === '' || periodo === '') {
+            $('#grid').html('<p class="text-center text-muted m-0">Selecciona grupo y período para cargar a todos los alumnos.</p>');
+            $('#submit').attr('disabled', true);
             return;
         }
 
-        // Construir datos para validar duplicados: ClassId $ StudentId $ "type|number"
-        // Se envía el período completo (type|number) para distinguir Bimestre de Trimestre.
-        var fullData = cid + '$' + val + '$' + periodo;
+        $('#grid').html('<p class="text-center text-muted m-0"><i class="fa fa-spinner fa-spin"></i> Cargando alumnos...</p>');
+        $('#submit').attr('disabled', true);
 
-        $.post("get_student.php?lang=es", {
-            studclass: fullData
-        }, function(data) {
-            $("#reslt").html(data);
-
-            // Si el mensaje indica que ya existen resultados, deshabilitamos el botón
-            if(data.toLowerCase().indexOf("ya cuenta con resultados") !== -1) {
-                $("#submit").attr("disabled", true);
+        $.post('get_group_grid.php?lang=es', { classid: cid, periodo: periodo }, function (data) {
+            $('#grid').html(data);
+            // Habilitar guardar solo si hay inputs Y el período no está bloqueado para el rol.
+            var state = $('#grid').find('[data-grid-state]').data('grid-state');
+            var hasInputs = $('#grid').find('.grid-input').length > 0;
+            if (hasInputs && state !== 'locked') {
+                $('#submit').attr('disabled', false);
             } else {
-                $("#submit").attr("disabled", false);
+                $('#submit').attr('disabled', true);
             }
         });
     }
 
-    // Revalidar cuando cambian el período (llamado desde el onChange inline del select).
-    // Se usa onChange inline en vez de $(...).on() para que funcione aunque algo
-    // más en el script falle o jQuery no esté listo al registrar el binding.
+    // onChange inline del período (patrón robusto en esta plantilla heredada).
     function onPeriodoChange() {
-        var studentSelected = document.getElementById('studentid').value;
-        if (studentSelected && studentSelected !== "") {
-            getresult(studentSelected);
-        } else {
-            document.getElementById('reslt').innerHTML = "";
-            document.getElementById('submit').disabled = false;
-        }
+        loadGrid();
     }
     </script>
 </body>

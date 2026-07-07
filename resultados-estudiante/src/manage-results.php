@@ -4,6 +4,7 @@
  * Gestión y edición de calificaciones de estudiantes
  */
 include(__DIR__ . '/includes/check-login.php');
+require_once(__DIR__ . '/includes/result-audit.php'); // P2: auditoría + candado de periodos
 
 // Verificación de rol: pantalla compartida admin + docente.
 if (!in_array($_SESSION['role'] ?? '', ['admin', 'teacher'], true)) {
@@ -23,95 +24,149 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
+// EDICIÓN POR GRUPO COMPLETO: recibe la matriz marks[studentId][subjectId] /
+// letters[studentId][subjectId] de UN grupo+periodo. Guarda SOLO lo que cambió
+// (celda vacía = no tocar), audita cada cambio, respeta el candado (docente no
+// edita periodos cerrados) y NO auto-cierra (es corrección, no captura).
 if (isset($_POST['update_marks'])) {
+    $class        = intval($_POST['class'] ?? 0);
+    $periodo_data = $_POST['periodo_data'] ?? '';
+    $marksIn      = $_POST['marks']   ?? []; // [studentId][subjectId] => número
+    $lettersIn    = $_POST['letters'] ?? []; // [studentId][subjectId] => letra
+
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
         $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif ($class <= 0 || $periodo_data === '') {
+        $error = "Selecciona grupo y período.";
     } else {
-        // mark_value viene indexado por mark_id (mark_value[ID]) para notas numéricas.
-        // letter_value[ID] llega cuando la materia se califica con letra (MATERNAL: todo el
-        // español va en letra E/MB/B/S/I).
-        $mark_values   = $_POST['mark_value'] ?? [];
-        $letter_values = $_POST['letter_value'] ?? [];
-        $fuera_rango = false;
-        $letra_invalida = false;
-        // Escala válida de letras para el español de maternal.
-        $letras_validas_es = ['E', 'MB', 'B', 'S', 'I'];
+        $pp = explode('|', $periodo_data);
+        $p_type = intval($pp[0] ?? 0);
+        $p_num  = intval($pp[1] ?? 0);
+        if ($p_type === 0 || $p_num === 0) {
+            $error = "Período inválido.";
+        } else {
+            $trimestre_text = ($p_type === 1) ? "Bimestre {$p_num}" : "Trimestre {$p_num}";
 
-        // Si es docente, solo puede actualizar notas de SUS materias.
-        // Se prepara un verificador de propiedad por mark_id.
-        $ownCheck = null;
-        if ($teacherRole === 'teacher' && $teacherId) {
-            $ownCheck = $dbh->prepare(
-                "SELECT COUNT(*) FROM tblresult r
-                 WHERE r.id = :id
-                 AND r.SubjectId IN (SELECT SubjectId FROM tblteacher_subject WHERE TeacherId = :tid AND ClassId = r.ClassId)"
-            );
-        }
+            // Candado: el docente no edita períodos cerrados; el admin sí.
+            $periodoCerrado = period_is_locked($dbh, $class, $trimestre_text);
 
-        try {
-            $dbh->beginTransaction();
+            if ($teacherRole === 'teacher' && $periodoCerrado) {
+                $error = "Este período está cerrado y no se guardó ningún cambio. Solo el administrador puede reabrirlo.";
+            } else {
+                // Escalas válidas por idioma español (esta pantalla es ES).
+                $letras_validas_es = ['E', 'MB', 'B', 'S', 'I'];
 
-            foreach ($mark_values as $mark_id => $raw) {
-                $mark_id = intval($mark_id);
-
-                // Validación de rango: la calificación debe ser un entero 0-100
-                if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) {
-                    $fuera_rango = true;
-                    continue;
+                // Un docente solo edita SUS materias. Verificador de propiedad por SubjectId.
+                $ownCheck = null;
+                if ($teacherRole === 'teacher' && $teacherId) {
+                    $ownCheck = $dbh->prepare(
+                        "SELECT COUNT(*) FROM tblteacher_subject WHERE TeacherId = :tid AND ClassId = :cid AND SubjectId = :subid"
+                    );
                 }
-                $mark_value = intval($raw);
 
-                // Un docente solo edita notas de sus materias
-                if ($ownCheck !== null) {
-                    $ownCheck->execute([':id' => $mark_id, ':tid' => $teacherId]);
-                    if ((int)$ownCheck->fetchColumn() === 0) {
-                        continue; // No es suya: se omite
+                // Localiza la nota existente de un alumno+materia+periodo (para comparar/auditar).
+                $findStmt = $dbh->prepare(
+                    "SELECT id, StudentId, ClassId, SubjectId, Trimestre, marks, grade_letter
+                     FROM tblresult WHERE StudentId = :sid AND SubjectId = :subid AND ClassId = :cid AND Trimestre = :trim"
+                );
+
+                $fuera_rango = false;
+                $letra_invalida = false;
+                $noExistian = 0; // celdas con valor pero sin nota previa (no se crean en edición)
+
+                try {
+                    $dbh->beginTransaction();
+                    $actualizadas = 0;
+
+                    // Combina las celdas numéricas y de letra en un solo recorrido por [sid][subj].
+                    $todo = [];
+                    foreach ($marksIn as $sid => $porMat) {
+                        foreach ($porMat as $subj => $val) { $todo[(int)$sid][(int)$subj]['num'] = $val; }
                     }
-                }
-
-                $sql = "UPDATE tblresult SET marks = :marks, grade_letter = NULL WHERE id = :id";
-                $stmt = $dbh->prepare($sql);
-                $stmt->execute([':marks' => $mark_value, ':id' => $mark_id]);
-            }
-
-            // Notas-letra (maternal español): se guardan en grade_letter, marks a NULL.
-            foreach ($letter_values as $mark_id => $raw) {
-                $mark_id = intval($mark_id);
-                $L = strtoupper(trim((string) $raw));
-                if ($L === '') {
-                    continue; // Sin cambio (selector vacío)
-                }
-                if (!in_array($L, $letras_validas_es, true)) {
-                    $letra_invalida = true;
-                    continue;
-                }
-
-                // Un docente solo edita notas de sus materias
-                if ($ownCheck !== null) {
-                    $ownCheck->execute([':id' => $mark_id, ':tid' => $teacherId]);
-                    if ((int)$ownCheck->fetchColumn() === 0) {
-                        continue;
+                    foreach ($lettersIn as $sid => $porMat) {
+                        foreach ($porMat as $subj => $val) { $todo[(int)$sid][(int)$subj]['let'] = $val; }
                     }
+
+                    foreach ($todo as $sid => $porMat) {
+                        foreach ($porMat as $subj => $vals) {
+                            // Determina el valor nuevo (número o letra) y valida.
+                            $esLetra = array_key_exists('let', $vals);
+                            if ($esLetra) {
+                                $raw = strtoupper(trim((string)$vals['let']));
+                                if ($raw === '') continue; // vacía = no tocar
+                                if (!in_array($raw, $letras_validas_es, true)) { $letra_invalida = true; continue; }
+                                $newMarks = null; $newLetter = $raw;
+                            } else {
+                                $raw = $vals['num'];
+                                if ($raw === '' || $raw === null) continue; // vacía = no tocar
+                                if (!is_numeric($raw) || intval($raw) < 0 || intval($raw) > 100) { $fuera_rango = true; continue; }
+                                $newMarks = intval($raw); $newLetter = null;
+                            }
+
+                            // Docente: solo sus materias.
+                            if ($ownCheck !== null) {
+                                $ownCheck->execute([':tid' => $teacherId, ':cid' => $class, ':subid' => $subj]);
+                                if ((int)$ownCheck->fetchColumn() === 0) continue;
+                            }
+
+                            // Nota existente (la edición NO crea notas nuevas: si no existe, se omite).
+                            $findStmt->execute([':sid' => $sid, ':subid' => $subj, ':cid' => $class, ':trim' => $trimestre_text]);
+                            $old = $findStmt->fetch(PDO::FETCH_ASSOC);
+                            if (!$old) { $noExistian++; continue; }
+
+                            // Solo actualiza/audita si el valor realmente cambió.
+                            $changed = ((int)$old['marks'] !== (int)$newMarks && !($old['marks'] === null && $newMarks === null))
+                                    || ((string)$old['grade_letter'] !== (string)$newLetter);
+                            if (!$changed) continue;
+
+                            $upd = $dbh->prepare("UPDATE tblresult SET marks = :m, grade_letter = :gl WHERE id = :id");
+                            $upd->execute([':m' => $newMarks, ':gl' => $newLetter, ':id' => (int)$old['id']]);
+                            log_result_change($dbh, (int)$old['id'], $old, $newMarks, $newLetter);
+                            $actualizadas++;
+                        }
+                    }
+
+                    $dbh->commit();
+
+                    if ($actualizadas > 0) {
+                        $msg = "Cambios guardados: {$actualizadas} calificación(es) actualizada(s).";
+                    } else {
+                        $msg = "No hubo cambios que guardar.";
+                    }
+                    if ($fuera_rango)    $msg .= " Algunas notas estaban fuera del rango 0-100 y no se guardaron.";
+                    if ($letra_invalida) $msg .= " Algunas letras estaban fuera de la escala (E/MB/B/S/I) y no se guardaron.";
+                    if ($noExistian > 0) $msg .= " {$noExistian} celda(s) sin calificación previa se omitieron (usa Agregar Resultado para capturar nuevas).";
+                } catch (PDOException $e) {
+                    if ($dbh->inTransaction()) $dbh->rollBack();
+                    $error = "Error al actualizar las calificaciones. Intenta de nuevo.";
                 }
-
-                $stmt = $dbh->prepare("UPDATE tblresult SET grade_letter = :gl, marks = NULL WHERE id = :id");
-                $stmt->execute([':gl' => $L, ':id' => $mark_id]);
             }
-
-            $dbh->commit();
-            $msg = "Calificaciones actualizadas correctamente.";
-            if ($fuera_rango) {
-                $msg = "Calificaciones actualizadas. Algunas estaban fuera del rango 0-100 y no se guardaron.";
-            }
-            if ($letra_invalida) {
-                $msg = "Calificaciones actualizadas. Algunas letras estaban fuera de la escala (E/MB/B/S/I) y no se guardaron.";
-            }
-        } catch (PDOException $e) {
-            if ($dbh->inTransaction()) $dbh->rollBack();
-            $error = "Error al actualizar las calificaciones. Intenta de nuevo.";
         }
     }
 }
+
+// Historial de cierres/aperturas de periodos (registro de bloqueos).
+// Admin: todo. Docente: solo de los grupos donde tiene materias.
+if ($teacherRole === 'teacher' && $teacherId) {
+    $logStmt = $dbh->prepare(
+        "SELECT l.changed_at, l.action, l.scope, l.Trimestre, l.changed_by_name, l.changed_by_role,
+                c.ClassName, c.Section
+         FROM tblperiod_lock_log l
+         LEFT JOIN tblclasses c ON c.id = l.ClassId
+         WHERE l.ClassId IN (SELECT DISTINCT ClassId FROM tblteacher_subject WHERE TeacherId = :tid)
+         ORDER BY l.changed_at DESC LIMIT 50"
+    );
+    $logStmt->execute([':tid' => $teacherId]);
+} else {
+    $logStmt = $dbh->query(
+        "SELECT l.changed_at, l.action, l.scope, l.Trimestre, l.changed_by_name, l.changed_by_role,
+                c.ClassName, c.Section
+         FROM tblperiod_lock_log l
+         LEFT JOIN tblclasses c ON c.id = l.ClassId
+         ORDER BY l.changed_at DESC LIMIT 50"
+    );
+}
+$lockLog = $logStmt->fetchAll(PDO::FETCH_OBJ);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -469,7 +524,7 @@ if (isset($_POST['update_marks'])) {
                         <div class="row page-title-div">
                             <div class="col-md-12">
                                 <h2 class="title">Gestionar Calificaciones de Estudiantes</h2>
-                                <p class="text-muted" style="margin-top: 10px;">Selecciona un grupo y estudiante para ver y editar sus calificaciones</p>
+                                <p class="text-muted" style="margin-top: 10px;">Selecciona un grupo y período para ver y editar las calificaciones de todo el grupo</p>
                             </div>
                         </div>
                     </div>
@@ -485,53 +540,97 @@ if (isset($_POST['update_marks'])) {
                                         <div class="alert alert-danger alert-custom"><i class="fa fa-times-circle"></i> <?php echo htmlentities($error); ?></div>
                                     <?php } ?>
 
-                                    <!-- Panel de Filtros -->
+                                    <!-- Panel de Filtros: grupo + período (edición por grupo completo) -->
                                     <div class="filter-panel">
-                                        <form id="filterForm" method="post">
-                                            <div class="row">
-                                                <div class="col-xs-12 col-sm-6 col-md-6">
-                                                    <div class="form-group">
-                                                        <label for="classid"><strong>Grado y Grupo</strong></label>
-                                                        <select id="classid" name="classid" class="form-control" required onChange="getStudents(this.value);">
-                                                            <option value="">-- Selecciona un grupo --</option>
-                                                            <?php
-                                                            // Orden pedagógico: maternal → kinder → preprimaria → primaria → secundaria,
-                                                            // luego por número de grado y sección.
-                                                            $sql = "SELECT id, ClassName, Section FROM tblclasses
-                                                                    ORDER BY AcademicYear DESC,
-                                                                             FIELD(educationLevel,'maternal','kinder','preprimaria','primaria','secundaria'),
-                                                                             ClassNameNumeric ASC, Section ASC";
-                                                            $query = $dbh->prepare($sql);
-                                                            $query->execute();
-                                                            foreach ($query->fetchAll(PDO::FETCH_OBJ) as $class) { ?>
-                                                                <option value="<?php echo $class->id; ?>">
-                                                                    <?php echo htmlentities($class->ClassName . " (" . $class->Section . ")"); ?>
-                                                                </option>
-                                                            <?php } ?>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div class="col-xs-12 col-sm-6 col-md-6">
-                                                    <div class="form-group">
-                                                        <label for="studentid"><strong>Estudiante</strong></label>
-                                                        <select id="studentid" name="studentid" class="form-control" required onChange="getStudentResults(this.value);">
-                                                            <option value="">-- Selecciona un estudiante --</option>
-                                                        </select>
-                                                    </div>
+                                        <div class="row">
+                                            <div class="col-xs-12 col-sm-6 col-md-6">
+                                                <div class="form-group">
+                                                    <label for="classid"><strong>Grado y Grupo</strong></label>
+                                                    <select id="classid" class="form-control" onChange="onGrupoChange(this.value);">
+                                                        <option value="">-- Selecciona un grupo --</option>
+                                                        <?php
+                                                        // Orden pedagógico: maternal → kinder → preprimaria → primaria → secundaria.
+                                                        $sql = "SELECT id, ClassName, Section, educationLevel FROM tblclasses
+                                                                ORDER BY AcademicYear DESC,
+                                                                         FIELD(educationLevel,'maternal','kinder','preprimaria','primaria','secundaria'),
+                                                                         ClassNameNumeric ASC, Section ASC";
+                                                        $query = $dbh->prepare($sql);
+                                                        $query->execute();
+                                                        foreach ($query->fetchAll(PDO::FETCH_OBJ) as $g) { ?>
+                                                            <option value="<?php echo (int)$g->id; ?>" data-level="<?php echo htmlspecialchars($g->educationLevel, ENT_QUOTES); ?>">
+                                                                <?php echo htmlentities($g->ClassName . " (" . $g->Section . ")"); ?>
+                                                            </option>
+                                                        <?php } ?>
+                                                    </select>
                                                 </div>
                                             </div>
-                                            <div class="row">
-                                                <div class="col-xs-12">
-                                                    <button type="button" class="btn btn-pdf" onClick="generateGroupPDF();">
-                                                        <i class="fa fa-file-pdf-o"></i> Generar PDF del Grupo
-                                                    </button>
+                                            <div class="col-xs-12 col-sm-6 col-md-6">
+                                                <div class="form-group">
+                                                    <label for="periodo_data"><strong>Período</strong></label>
+                                                    <select id="periodo_data" class="form-control" onChange="loadGrid();">
+                                                        <option value="">Selecciona un grupo primero</option>
+                                                    </select>
                                                 </div>
                                             </div>
-                                        </form>
+                                        </div>
                                     </div>
 
-                                    <!-- Panel de Resultados -->
-                                    <div id="resultsPanel"></div>
+                                    <!-- Panel de edición por grupo (matriz alumnos × materias) -->
+                                    <form method="post" id="editGridForm">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                        <input type="hidden" name="class" id="form_class" value="">
+                                        <input type="hidden" name="periodo_data" id="form_periodo" value="">
+                                        <input type="hidden" name="update_marks" value="1">
+                                        <div id="resultsPanel"></div>
+                                        <div id="saveBar" style="margin-top:20px; text-align:right; display:none;">
+                                            <button type="submit" class="btn-update">
+                                                <i class="fa fa-save"></i> Guardar Cambios del Grupo
+                                            </button>
+                                        </div>
+                                    </form>
+
+                                    <!-- Historial de cierres/aperturas de periodos -->
+                                    <div class="result-panel" style="margin-top:30px;">
+                                        <div>
+                                            <h4><i class="fa fa-history"></i> Historial de cierres de periodos</h4>
+                                            <p>Registro de quién cerró o abrió cada periodo y cuándo.</p>
+                                        </div>
+                                        <?php if (empty($lockLog)): ?>
+                                            <p class="text-muted-custom">Aún no hay cierres ni aperturas registrados.</p>
+                                        <?php else: ?>
+                                        <div style="overflow-x:auto;">
+                                            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                                                <thead>
+                                                    <tr style="background:#f8fafc; text-align:left;">
+                                                        <th style="padding:9px 10px; border-bottom:2px solid #e2e8f0;">Fecha y hora</th>
+                                                        <th style="padding:9px 10px; border-bottom:2px solid #e2e8f0;">Acción</th>
+                                                        <th style="padding:9px 10px; border-bottom:2px solid #e2e8f0;">Grupo</th>
+                                                        <th style="padding:9px 10px; border-bottom:2px solid #e2e8f0;">Periodo</th>
+                                                        <th style="padding:9px 10px; border-bottom:2px solid #e2e8f0;">Quién</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php foreach ($lockLog as $lg): ?>
+                                                    <tr>
+                                                        <td style="padding:8px 10px; border-bottom:1px solid #eef2f7;"><?php echo date('d/m/Y H:i', strtotime($lg->changed_at)); ?></td>
+                                                        <td style="padding:8px 10px; border-bottom:1px solid #eef2f7;">
+                                                            <?php if ($lg->action === 'cerro'): ?>
+                                                                <span style="color:#991b1b; font-weight:700;"><i class="fa fa-lock"></i> Cerró</span>
+                                                            <?php else: ?>
+                                                                <span style="color:#065f46; font-weight:700;"><i class="fa fa-unlock"></i> Abrió</span>
+                                                            <?php endif; ?>
+                                                            <?php if ($lg->scope === 'auto'): ?><small class="text-muted">(auto)</small><?php elseif ($lg->scope === 'unidad'): ?><small class="text-muted">(unidad)</small><?php endif; ?>
+                                                        </td>
+                                                        <td style="padding:8px 10px; border-bottom:1px solid #eef2f7;"><?php echo htmlentities(($lg->ClassName ?? '—') . ' (' . ($lg->Section ?? '') . ')'); ?></td>
+                                                        <td style="padding:8px 10px; border-bottom:1px solid #eef2f7;"><?php echo htmlentities($lg->Trimestre ?? '—'); ?></td>
+                                                        <td style="padding:8px 10px; border-bottom:1px solid #eef2f7;"><?php echo htmlentities($lg->changed_by_name ?? '—'); ?></td>
+                                                    </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <?php endif; ?>
+                                    </div>
 
                                 </div>
                             </div>
@@ -547,50 +646,47 @@ if (isset($_POST['update_marks'])) {
     <script src="js/bootstrap/bootstrap.min.js"></script>
     <script>
         
-        function getStudents(classid) {
-            if (classid === '') {
-                $('#studentid').html('<option value="">-- Selecciona un estudiante --</option>');
-                $('#resultsPanel').html('');
-                return;
+        // Al elegir grupo: genera los períodos según el nivel y limpia la matriz.
+        function onGrupoChange(classid) {
+            var level = $('#classid option:selected').data('level');
+            var $t = $('#periodo_data').empty().append('<option value="">Seleccionar Período</option>');
+            if (level === 'primaria' || level === 'secundaria') {
+                for (var i = 1; i <= 3; i++) $t.append('<option value="2|' + i + '">Trimestre ' + i + '</option>');
+            } else {
+                for (var i = 1; i <= 5; i++) $t.append('<option value="1|' + i + '">Bimestre ' + i + '</option>');
             }
-            
-            $.post("get_student.php?lang=es", {classid: classid}, function(data) {
-                $('#studentid').html(data);
-                $('#resultsPanel').html('');
-            });
+            $('#resultsPanel').html('');
+            $('#saveBar').hide();
         }
 
-        function getStudentResults(studentid) {
-            if (studentid === '') {
+        // Carga la matriz alumnos × materias del grupo+período para EDITAR.
+        function loadGrid() {
+            var cid = $('#classid').val();
+            var periodo = $('#periodo_data').val();
+
+            if (cid === '' || periodo === '') {
                 $('#resultsPanel').html('');
-                return;
-            }
-            
-            var classid = $('#classid').val();
-            if (classid === '') {
-                alert('Por favor selecciona un grupo primero');
+                $('#saveBar').hide();
                 return;
             }
 
-            $.post("get_student_results.php?lang=es", {
-                studentid: studentid,
-                classid: classid
-            }, function(data) {
+            $('#resultsPanel').html('<p class="text-center text-muted"><i class="fa fa-spinner fa-spin"></i> Cargando calificaciones del grupo...</p>');
+            $('#saveBar').hide();
+
+            $.post('get_group_grid.php?lang=es&mode=edit', { classid: cid, periodo: periodo }, function (data) {
                 $('#resultsPanel').html(data);
+                // Sincroniza los hidden del form con la selección actual.
+                $('#form_class').val(cid);
+                $('#form_periodo').val(periodo);
+                // Muestra el botón guardar solo si hay inputs y no está bloqueado para el rol.
+                var state = $('#resultsPanel').find('[data-grid-state]').data('grid-state');
+                var hasInputs = $('#resultsPanel').find('.grid-input').length > 0;
+                if (hasInputs && state !== 'locked') {
+                    $('#saveBar').show();
+                } else {
+                    $('#saveBar').hide();
+                }
             });
-        }
-
-        function generateGroupPDF() {
-            var classid = $('#classid').val();
-            
-            if (!classid || classid === '') {
-                alert('Por favor selecciona un grupo primero');
-                return;
-            }
-            
-            // Abrir el generador de PDF en nueva ventana
-            var pdfUrl = 'generate-group-grades.php?classid=' + classid + '&lang=es';
-            window.open(pdfUrl, '_blank');
         }
     </script>
 </body>
