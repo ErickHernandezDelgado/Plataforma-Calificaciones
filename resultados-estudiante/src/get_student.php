@@ -13,9 +13,40 @@ $lang = isset($_GET['lang']) && $_GET['lang'] == 'en' ? 'en' : 'es';
 // 1. CARGA DE ESTUDIANTES PARA EL SELECTOR (Dropdown)
 if (!empty($_POST["classid"])) {
     $classid = intval($_POST['classid']);
-    
-    $stmt = $dbh->prepare("SELECT StudentName, StudentId FROM tblstudents WHERE ClassId = :id AND Status = 1 ORDER BY StudentName");
-    $stmt->execute([':id' => $classid]);
+
+    // Parámetro OPCIONAL de ciclo (historial por grupo+ciclo). Si viene un año que NO es el
+    // vigente, se listan los alumnos que tuvieron NOTAS en ese grupo ese ciclo (desde tblresult),
+    // no los alumnos actuales del grupo. Sin este parámetro, comportamiento normal (alumnos actuales).
+    $reqYear = isset($_POST['year']) && $_POST['year'] !== '' ? preg_replace('/[^0-9]/', '', (string)$_POST['year']) : null;
+
+    // Ciclo vigente del nivel del grupo (para decidir si el año pedido es histórico o actual).
+    $cicloVigente = null;
+    if ($reqYear !== null) {
+        $cv = $dbh->prepare(
+            "SELECT sc.AcademicYear FROM tblclasses c
+             JOIN tblschool_config sc ON sc.educationLevel = c.educationLevel WHERE c.id = :id"
+        );
+        $cv->execute([':id' => $classid]);
+        $cicloVigente = (string)($cv->fetchColumn() ?: '');
+    }
+
+    if ($reqYear !== null && $reqYear !== $cicloVigente) {
+        // Histórico: alumnos MATRICULADOS en ese grupo+ciclo (aunque hoy estén en otro grupo
+        // y aunque no tengan notas). Se basa en tblenrollment (matrícula real del ciclo).
+        $stmt = $dbh->prepare(
+            "SELECT DISTINCT s.StudentName, s.StudentId
+             FROM tblenrollment e JOIN tblstudents s ON s.StudentId = e.StudentId
+             WHERE e.ClassId = :id AND e.AcademicYear = :year
+             ORDER BY s.StudentName"
+        );
+        $stmt->execute([':id' => $classid, ':year' => $reqYear]);
+    } else {
+        // Actual: alumnos activos del grupo hoy (comportamiento normal).
+        $stmt = $dbh->prepare(
+            "SELECT StudentName, StudentId FROM tblstudents WHERE ClassId = :id AND Status = 1 AND graduated = 0 ORDER BY StudentName"
+        );
+        $stmt->execute([':id' => $classid]);
+    }
     $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo '<option value="">Seleccionar Estudiante</option>';

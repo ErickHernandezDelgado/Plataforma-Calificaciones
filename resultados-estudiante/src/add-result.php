@@ -85,7 +85,7 @@ if (isset($_POST['submit'])) {
             $validSubjects = array_keys($subjectType);
 
             // Alumnos activos del grupo (las filas que se exigen).
-            $alStmt = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE ClassId = :cid AND Status = 1");
+            $alStmt = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE ClassId = :cid AND Status = 1 AND graduated = 0");
             $alStmt->execute([':cid' => $class]);
             $validStudents = array_map('intval', $alStmt->fetchAll(PDO::FETCH_COLUMN));
 
@@ -151,9 +151,12 @@ if (isset($_POST['submit'])) {
                          FROM tblresult WHERE StudentId = :sid AND SubjectId = :subid AND ClassId = :cid AND Trimestre = :trim"
                     );
                     $insStmt = $dbh->prepare(
-                        "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, grade_letter, Trimestre, term, PostingDate)
-                         VALUES(:sid, :cid, :subid, :marks, :gl, :trim, :term, NOW())"
+                        "INSERT INTO tblresult(StudentId, ClassId, SubjectId, marks, grade_letter, Trimestre, AcademicYear, term, PostingDate)
+                         VALUES(:sid, :cid, :subid, :marks, :gl, :trim, :year, :term, NOW())"
                     );
+
+                    // Ciclo vigente del grupo (P3): cada nota NUEVA se guarda con este año.
+                    $cicloVigente = current_academic_year($dbh, (int)$class);
 
                     $dbh->beginTransaction();
                     try {
@@ -182,7 +185,7 @@ if (isset($_POST['submit'])) {
                                     $insStmt->execute([
                                         ':sid' => $sid, ':cid' => $class, ':subid' => $subId,
                                         ':marks' => $newMarks, ':gl' => $newLetter,
-                                        ':trim' => $trimestre_text, ':term' => $term_number,
+                                        ':trim' => $trimestre_text, ':year' => $cicloVigente, ':term' => $term_number,
                                     ]);
                                     $nuevas++;
                                 }

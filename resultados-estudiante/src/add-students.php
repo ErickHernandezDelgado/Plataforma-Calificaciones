@@ -107,10 +107,23 @@ if (isset($_POST['submit'])) {
                 try {
                     $dbh->beginTransaction();
 
-                    $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, Curp, ClassId, Status) VALUES(:n, :e, :c, :cl, 1)";
+                    // Ciclo vigente (del nivel del grupo) para marcar el año del alumno y su matrícula.
+                    $cvStmt = $dbh->prepare(
+                        "SELECT sc.AcademicYear FROM tblclasses c
+                         JOIN tblschool_config sc ON sc.educationLevel = c.educationLevel WHERE c.id = :cl"
+                    );
+                    $cvStmt->execute([':cl' => $classid]);
+                    $cicloNuevo = (string)($cvStmt->fetchColumn() ?: date('Y'));
+
+                    $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, Curp, ClassId, AcademicYear, Status) VALUES(:n, :e, :c, :cl, :ay, 1)";
                     $query = $dbh->prepare($sql);
-                    $query->execute([':n' => $name, ':e' => $email, ':c' => $curp, ':cl' => $classid]);
+                    $query->execute([':n' => $name, ':e' => $email, ':c' => $curp, ':cl' => $classid, ':ay' => $cicloNuevo]);
                     $student_id = $dbh->lastInsertId();
+
+                    // Matrícula del alumno en su grupo para el ciclo vigente (historial).
+                    $dbh->prepare(
+                        "INSERT IGNORE INTO tblenrollment (StudentId, ClassId, AcademicYear) VALUES (:sid, :cl, :ay)"
+                    )->execute([':sid' => $student_id, ':cl' => $classid, ':ay' => $cicloNuevo]);
 
                     if ($tutor_option === 'create') {
                         // OPCIÓN 1: CREAR TUTOR NUEVO

@@ -96,9 +96,12 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
         }
     }
 
-    $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : date('Y');
+    // Ciclo vigente (para mostrar por defecto los alumnos del año actual).
+    $cicloVigente = (int)$dbh->query("SELECT MAX(CAST(AcademicYear AS UNSIGNED)) FROM tblschool_config")->fetchColumn();
+    $selected_year = isset($_POST['academic_year']) ? intval($_POST['academic_year']) : $cicloVigente;
 
-    $sql_years = "SELECT DISTINCT AcademicYear FROM tblclasses ORDER BY AcademicYear DESC";
+    // Años disponibles según los ALUMNOS (no los grupos): así el filtro ofrece los ciclos reales.
+    $sql_years = "SELECT DISTINCT AcademicYear FROM tblstudents WHERE AcademicYear IS NOT NULL AND AcademicYear <> '' ORDER BY AcademicYear DESC";
     $query_years = $dbh->prepare($sql_years);
     $query_years->execute();
     $available_years = $query_years->fetchAll(PDO::FETCH_ASSOC);

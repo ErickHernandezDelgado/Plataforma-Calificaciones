@@ -95,6 +95,14 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                         <li><a href="generar-reporte.php"><i class="fa fa-table"></i> <span>Generar Reporte</span></a></li>
                     </ul>
                 </li>
+
+                <!-- Fin de ciclo: promoción de alumnos al grado siguiente (solo admin) -->
+                <li class="has-children">
+                    <a href="#"><i class="fa fa-graduation-cap"></i> <span>Fin de Ciclo</span> <i class="fa fa-angle-right arrow"></i></a>
+                    <ul class="child-nav">
+                        <li><a href="promocion-ciclo.php"><i class="fa fa-level-up"></i> <span>Promoción de Ciclo</span></a></li>
+                    </ul>
+                </li>
             </ul>
         </div>
     </div>

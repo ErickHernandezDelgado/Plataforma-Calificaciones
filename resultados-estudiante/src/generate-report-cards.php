@@ -35,12 +35,32 @@ if (!$class) {
     die("Grupo no encontrado.");
 }
 
-// Alumnos del grupo.
-$stmt = $dbh->prepare("SELECT StudentId FROM tblstudents WHERE ClassId = :cid ORDER BY StudentName ASC");
-$stmt->execute([':cid' => $classId]);
+// Ciclo escolar opcional (?year=YYYY). Si no viene, se usa el vigente del nivel.
+$year = isset($_GET['year']) && $_GET['year'] !== '' ? preg_replace('/[^0-9]/', '', $_GET['year']) : null;
+
+// Ciclo vigente del nivel del grupo (para decidir actual vs histórico).
+$cvStmt = $dbh->prepare("SELECT AcademicYear FROM tblschool_config WHERE educationLevel = :lvl");
+$cvStmt->execute([':lvl' => $class['educationLevel']]);
+$cicloVigente = (string)($cvStmt->fetchColumn() ?: '');
+
+// Alumnos del grupo: si se pide un ciclo PASADO, los que tuvieron notas en ese grupo+ciclo
+// (historial); si es el vigente (o sin año), los alumnos actuales activos del grupo.
+if ($year !== null && $year !== $cicloVigente) {
+    // Histórico: alumnos MATRICULADOS en ese grupo+ciclo (tblenrollment), tengan notas o no.
+    $stmt = $dbh->prepare(
+        "SELECT DISTINCT e.StudentId FROM tblenrollment e JOIN tblstudents s ON s.StudentId = e.StudentId
+         WHERE e.ClassId = :cid AND e.AcademicYear = :year ORDER BY s.StudentName ASC"
+    );
+    $stmt->execute([':cid' => $classId, ':year' => $year]);
+} else {
+    $stmt = $dbh->prepare(
+        "SELECT StudentId FROM tblstudents WHERE ClassId = :cid AND Status = 1 AND graduated = 0 ORDER BY StudentName ASC"
+    );
+    $stmt->execute([':cid' => $classId]);
+}
 $students = $stmt->fetchAll(PDO::FETCH_COLUMN);
 if (!$students) {
-    die("No hay alumnos en este grupo.");
+    die("No hay alumnos para este grupo en el ciclo seleccionado.");
 }
 
 /**
@@ -67,7 +87,7 @@ if (isset($templates[$level])) {
         if (!$first) {
             $html .= '<div style="page-break-after: always;"></div>';
         }
-        $html .= $renderFn($dbh, (int) $sid);
+        $html .= $renderFn($dbh, (int) $sid, $year);
         $first = false;
     }
 } else {
