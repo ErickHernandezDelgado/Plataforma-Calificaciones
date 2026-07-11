@@ -8,6 +8,10 @@ error_reporting(0);
 // Incluye el archivo de configuración (conexión a la base de datos, entre otros)
 include(__DIR__ . '/includes/config.php');
 
+// Helper del ciclo escolar vigente (current_academic_year) para mantener la matrícula
+// (tblenrollment) sincronizada cuando el admin cambia el grupo del alumno.
+require_once(__DIR__ . '/includes/result-audit.php');
+
 // Verifica que el usuario haya iniciado sesión y que su rol sea 'admin'
 if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
     header("Location: index.php");
@@ -118,6 +122,15 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                 $error = "Completa todos los campos correctamente (nombre, correo válido y grupo).";
             } else {
                 try {
+                    // Grupo actual del alumno, para saber si el admin lo está cambiando.
+                    $qOld = $dbh->prepare("SELECT ClassId FROM tblstudents WHERE StudentId = :stid");
+                    $qOld->execute([':stid' => $stid]);
+                    $oldClassId = (int)$qOld->fetchColumn();
+
+                    // Datos del alumno + (si cambió) su matrícula del ciclo vigente se actualizan
+                    // juntos o no se cambia nada.
+                    $dbh->beginTransaction();
+
                     $sql = "UPDATE tblstudents
                             SET StudentName = :studentname, StudentEmail = :studentemail,
                                 Curp = :curp, Status = :status, ClassId = :classid
@@ -132,8 +145,24 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                     $query->bindParam(':stid',         $stid,         PDO::PARAM_INT);
                     $query->execute();
 
+                    // Si el admin cambió el grupo, alinear la matrícula del CICLO VIGENTE al grupo
+                    // nuevo (los ciclos anteriores del historial NO se tocan: la clave única es
+                    // StudentId+AcademicYear, así que solo se afecta la fila del ciclo vigente).
+                    if ($classid !== $oldClassId) {
+                        $cicloVigente = current_academic_year($dbh, $classid);
+                        $dbh->prepare(
+                            "INSERT INTO tblenrollment (StudentId, ClassId, AcademicYear)
+                             VALUES (:sid, :cl, :ay)
+                             ON DUPLICATE KEY UPDATE ClassId = VALUES(ClassId)"
+                        )->execute([':sid' => $stid, ':cl' => $classid, ':ay' => $cicloVigente]);
+                    }
+
+                    $dbh->commit();
                     $msg = "Información de estudiante actualizada correctamente.";
                 } catch (PDOException $e) {
+                    if ($dbh->inTransaction()) {
+                        $dbh->rollBack();
+                    }
                     if ($e->getCode() == 23000) {
                         $error = "Ya existe otro estudiante con ese correo electrónico.";
                     } else {
@@ -195,7 +224,9 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     </div>
                                 <?php } ?>
 
-                                <?php if ($nueva_clave_tutor) { ?>
+                                <?php /* Credenciales del tutor ocultas (2026-07-09): el tutor entra solo con el
+                                         correo del alumno, sin clave. Reactivar quitando "false &&". */ ?>
+                                <?php if (false && $nueva_clave_tutor) { ?>
                                     <div class="alert alert-warning" role="alert">
                                         <strong>Credenciales del nuevo tutor:</strong><br>
                                         Usuario: <b><?php echo htmlentities($nueva_clave_tutor['email']); ?></b> |

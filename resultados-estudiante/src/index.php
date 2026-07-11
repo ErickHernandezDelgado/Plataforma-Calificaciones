@@ -31,33 +31,31 @@ if (isset($_POST['login'])) {
 
     $user = $query->fetch(PDO::FETCH_OBJ);
 
-    // 2) Si no está en admin, intentar como CORREO DE ALUMNO: el tutor entra con el correo
-    //    de su hijo. Se resuelve el/los tutor(es) del alumno (CanViewGrades=1) y se valida
-    //    la contraseña contra alguno de ellos. La sesión se abre como ese tutor, así el
-    //    portal muestra TODOS sus hijos (no solo el del correo usado).
+    // 2) Si no está en admin, intentar como CORREO DE ALUMNO: el tutor entra con SOLO el
+    //    correo institucional de su hijo, SIN contraseña (decisión del usuario 2026-07-09).
+    //    Solo admin/docentes (rama 1, arriba) siguen exigiendo contraseña. Se resuelve un
+    //    tutor del alumno (CanViewGrades=1) y la sesión se abre como ese tutor, así el
+    //    portal muestra TODOS sus hijos (no solo el del correo usado). El acceso sin clave
+    //    es una exposición aceptada: quien conozca el correo del alumno ve sus calificaciones.
     if (!$user) {
         $sqlStu = "SELECT a.id, a.UserName, a.Password, a.role, a.teacher_id
                    FROM tblstudents s
                    JOIN student_tutor st ON st.StudentId = s.StudentId AND st.CanViewGrades = 1
                    JOIN admin a ON a.id = st.TutorId AND a.role = 'tutor'
-                   WHERE s.StudentEmail = :email AND s.Status = 1";
+                   WHERE s.StudentEmail = :email AND s.Status = 1
+                   LIMIT 1";
         $qStu = $dbh->prepare($sqlStu);
         $qStu->bindParam(':email', $username, PDO::PARAM_STR);
         $qStu->execute();
-        // Un alumno puede tener varios tutores (padre/madre): valida contra cada uno.
-        foreach ($qStu->fetchAll(PDO::FETCH_OBJ) as $tutorCand) {
-            if (password_verify($password, $tutorCand->Password) || md5($password) === $tutorCand->Password) {
-                $user = $tutorCand;
-                break;
-            }
-        }
-        // Si encontró tutor válido por esta vía, saltar la verificación de contraseña de abajo
-        // (ya se validó). Se marca con una bandera.
-        if ($user) {
-            $_SESSION['alogin'] = $user->UserName;
+        $tutorCand = $qStu->fetch(PDO::FETCH_OBJ);
+
+        // Si el correo pertenece a un alumno activo con tutor autorizado, entra SIN validar
+        // contraseña (el campo de clave se ignora para padres/tutores).
+        if ($tutorCand) {
+            $_SESSION['alogin'] = $tutorCand->UserName;
             $_SESSION['role'] = 'tutor';
-            $_SESSION['id'] = $user->id;
-            $_SESSION['tutorid'] = $user->id;
+            $_SESSION['id'] = $tutorCand->id;
+            $_SESSION['tutorid'] = $tutorCand->id;
             header("Location: portal-tutor.php");
             exit;
         }
@@ -569,8 +567,7 @@ if (isset($_POST['login'])) {
                             type="password"
                             id="password"
                             name="password"
-                            placeholder="Contraseña"
-                            required
+                            placeholder="Contraseña (solo personal)"
                             autocomplete="current-password"
                             class="input-login" />
                         <button type="button" class="toggle-password" onclick="togglePassword()" aria-label="Mostrar u ocultar contraseña">

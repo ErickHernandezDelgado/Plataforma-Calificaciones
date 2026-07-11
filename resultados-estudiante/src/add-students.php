@@ -191,20 +191,177 @@ if (isset($_POST['submit'])) {
     }
 }
 
-// Importación Excel
-// TODO (pendiente auditoría): este bloque necesita endurecerse — validación de tipo de archivo,
-// transacción, validación de filas y de ClassId, y creación de tutores. No tocado por decisión del usuario.
-if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
-    $spreadsheet = IOFactory::load($_FILES['excel_file']['tmp_name']);
-    $data = $spreadsheet->getActiveSheet()->toArray();
-    $count = 0;
-    foreach ($data as $key => $row) {
-        if ($key == 0) continue;
-        $sql = "INSERT INTO tblstudents(StudentName, StudentEmail, CURP, ClassId, Status) VALUES(?,?,?,?,1)";
-        $dbh->prepare($sql)->execute([$row[0], $row[1], $row[2], $row[3]]);
-        $count++;
+// ─── IMPORTACIÓN MASIVA DESDE EXCEL (.xlsx) ───────────────────────────────────
+// Reglas (decididas con el usuario):
+//  - El GRUPO se elige en la pantalla; todo el Excel se inscribe en ese grupo.
+//  - Columnas por POSICIÓN: A Nombre alumno | B Correo alumno | C CURP | D Correo tutor | E Nombre tutor | F Relación
+//  - TODO O NADA: si UNA fila tiene error, no se importa NINGUNA (transacción + validación previa).
+//  - Login = correo del ALUMNO + contraseña del TUTOR. Se crea tutor (o se reutiliza si el correo ya existe),
+//    con vínculo CanViewGrades=1 y matrícula (tblenrollment) + AcademicYear del ciclo vigente.
+//  - Al final se muestran las credenciales generadas (correo alumno + contraseña del tutor).
+$import_rows_result = null; // para la vista (tabla de credenciales o errores)
+if (isset($_POST['import_excel'])) {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $error = "Solicitud no válida. Recarga la página e inténtalo de nuevo.";
+    } elseif (empty($_FILES['excel_file']['name']) || ($_FILES['excel_file']['error'] ?? 1) !== UPLOAD_ERR_OK) {
+        $error = "No se recibió el archivo. Selecciona un .xlsx válido.";
+    } else {
+        $import_class = intval($_POST['import_class'] ?? 0);
+        $ext = strtolower(pathinfo($_FILES['excel_file']['name'], PATHINFO_EXTENSION));
+
+        // Validar grupo destino.
+        $chkImpClass = $dbh->prepare("SELECT id, educationLevel FROM tblclasses WHERE id = :id");
+        $chkImpClass->execute([':id' => $import_class]);
+        $impClassRow = $chkImpClass->fetch(PDO::FETCH_ASSOC);
+
+        if ($import_class < 1 || !$impClassRow) {
+            $error = "Selecciona un grupo/grado válido para la carga masiva.";
+        } elseif ($ext !== 'xlsx') {
+            $error = "El archivo debe ser .xlsx (Excel).";
+        } elseif (($_FILES['excel_file']['size'] ?? 0) > 5 * 1024 * 1024) {
+            $error = "El archivo es demasiado grande (máx. 5 MB).";
+        } else {
+            try {
+                $spreadsheet = IOFactory::load($_FILES['excel_file']['tmp_name']);
+                $data = $spreadsheet->getActiveSheet()->toArray();
+
+                // Quitar la fila de encabezados (fila 1).
+                array_shift($data);
+                // Quitar filas totalmente vacías (incluida la de ejemplo si la dejaron vacía).
+                $data = array_values(array_filter($data, function ($r) {
+                    return trim((string)($r[0] ?? '')) !== '' || trim((string)($r[1] ?? '')) !== '';
+                }));
+
+                if (empty($data)) {
+                    $error = "El archivo no tiene filas de alumnos (solo encabezados).";
+                } else {
+                    // Ciclo vigente del nivel del grupo destino.
+                    $cvStmt = $dbh->prepare("SELECT AcademicYear FROM tblschool_config WHERE educationLevel = :lvl");
+                    $cvStmt->execute([':lvl' => $impClassRow['educationLevel']]);
+                    $cicloVigente = (string)($cvStmt->fetchColumn() ?: date('Y'));
+
+                    // ── PASADA 1: VALIDACIÓN (sin tocar BD). Todo o nada. ──
+                    $errores = [];          // ["fila N: motivo", ...]
+                    $filas = [];            // filas normalizadas y válidas
+                    $emailsAlumnoEnArchivo = []; // para detectar duplicados dentro del propio Excel
+
+                    // Prepara verificadores de existencia.
+                    $existAlumno = $dbh->prepare("SELECT 1 FROM tblstudents WHERE StudentEmail = :e");
+                    $existAdmin  = $dbh->prepare("SELECT id FROM admin WHERE UserName = :e");
+
+                    foreach ($data as $i => $row) {
+                        $nfila = $i + 2; // +2: fila 1 eran encabezados y $i arranca en 0
+                        $nombre   = trim((string)($row[0] ?? ''));
+                        $correoAl = strtolower(trim((string)($row[1] ?? '')));
+                        $curp     = trim((string)($row[2] ?? ''));
+                        $correoTu = strtolower(trim((string)($row[3] ?? '')));
+                        $nombreTu = trim((string)($row[4] ?? ''));
+                        $relacion = strtolower(trim((string)($row[5] ?? ''))) ?: 'tutor_legal';
+
+                        if ($nombre === '')                              { $errores[] = "Fila {$nfila}: falta el nombre del alumno."; continue; }
+                        if ($correoAl === '' || !filter_var($correoAl, FILTER_VALIDATE_EMAIL)) { $errores[] = "Fila {$nfila}: correo del alumno inválido."; continue; }
+                        if ($correoTu === '' || !filter_var($correoTu, FILTER_VALIDATE_EMAIL)) { $errores[] = "Fila {$nfila}: correo del tutor inválido."; continue; }
+                        if (!in_array($relacion, $relaciones_validas, true)) { $errores[] = "Fila {$nfila}: relación '{$relacion}' no válida (padre/madre/tutor_legal/abuelo)."; continue; }
+                        if ($curp !== '' && strlen($curp) > 18)          { $errores[] = "Fila {$nfila}: CURP demasiado largo."; continue; }
+
+                        // Duplicado dentro del archivo.
+                        if (isset($emailsAlumnoEnArchivo[$correoAl])) {
+                            $errores[] = "Fila {$nfila}: el correo del alumno '{$correoAl}' está repetido en el archivo.";
+                            continue;
+                        }
+                        // Correo de alumno ya existe en el sistema.
+                        $existAlumno->execute([':e' => $correoAl]);
+                        if ($existAlumno->fetch()) {
+                            $errores[] = "Fila {$nfila}: ya existe un alumno con el correo '{$correoAl}'.";
+                            continue;
+                        }
+
+                        $emailsAlumnoEnArchivo[$correoAl] = true;
+                        $filas[] = [
+                            'nombre' => $nombre, 'correoAl' => $correoAl, 'curp' => $curp,
+                            'correoTu' => $correoTu, 'nombreTu' => $nombreTu, 'relacion' => $relacion,
+                        ];
+                    }
+
+                    if (!empty($errores)) {
+                        // TODO O NADA: hay errores → no se importa nada.
+                        $error = "No se importó ningún alumno. Corrige estos errores y vuelve a subir el archivo:";
+                        $import_rows_result = ['tipo' => 'errores', 'items' => $errores];
+                    } else {
+                        // ── PASADA 2: GUARDADO en una sola transacción. ──
+                        try {
+                            $dbh->beginTransaction();
+                            $credenciales = []; // para mostrar al final
+                            // Cache de tutores creados/existentes por correo (evita duplicar en el mismo lote).
+                            $tutorPorCorreo = [];
+
+                            $insAlumno = $dbh->prepare(
+                                "INSERT INTO tblstudents(StudentName, StudentEmail, Curp, ClassId, AcademicYear, Status)
+                                 VALUES(:n, :e, :c, :cl, :ay, 1)"
+                            );
+                            $insEnroll = $dbh->prepare(
+                                "INSERT IGNORE INTO tblenrollment (StudentId, ClassId, AcademicYear) VALUES (:sid, :cl, :ay)"
+                            );
+
+                            foreach ($filas as $f) {
+                                // 1) Alumno.
+                                $insAlumno->execute([
+                                    ':n' => $f['nombre'], ':e' => $f['correoAl'], ':c' => ($f['curp'] ?: null),
+                                    ':cl' => $import_class, ':ay' => $cicloVigente,
+                                ]);
+                                $sid = (int)$dbh->lastInsertId();
+
+                                // 2) Tutor: reusar si el correo ya existe (en el sistema o en este lote); si no, crear.
+                                $claveMostrar = null;
+                                if (isset($tutorPorCorreo[$f['correoTu']])) {
+                                    $tid = $tutorPorCorreo[$f['correoTu']];
+                                    $claveMostrar = '(cuenta existente)';
+                                } else {
+                                    $existAdmin->execute([':e' => $f['correoTu']]);
+                                    $adminRow = $existAdmin->fetch(PDO::FETCH_ASSOC);
+                                    if ($adminRow) {
+                                        $tid = (int)$adminRow['id'];
+                                        $claveMostrar = '(cuenta existente)';
+                                    } else {
+                                        $t = createTutor($dbh, $f['correoTu'], $f['nombreTu']);
+                                        if (!is_array($t)) { throw new RuntimeException("No se pudo crear el tutor '{$f['correoTu']}'."); }
+                                        $tid = (int)$t['id'];
+                                        $claveMostrar = $t['pass'];
+                                    }
+                                    $tutorPorCorreo[$f['correoTu']] = $tid;
+                                }
+
+                                // 3) Vínculo alumno↔tutor (CanViewGrades=1 explícito para que el login funcione).
+                                $dbh->prepare(
+                                    "INSERT INTO student_tutor (StudentId, TutorId, RelationshipType, PrimaryContact, CanViewGrades)
+                                     VALUES (:sid, :tid, :rel, 1, 1)"
+                                )->execute([':sid' => $sid, ':tid' => $tid, ':rel' => $f['relacion']]);
+                                $dbh->prepare("UPDATE tblstudents SET primary_tutor_id = :tid WHERE StudentId = :sid")
+                                    ->execute([':tid' => $tid, ':sid' => $sid]);
+
+                                // 4) Matrícula del ciclo vigente.
+                                $insEnroll->execute([':sid' => $sid, ':cl' => $import_class, ':ay' => $cicloVigente]);
+
+                                $credenciales[] = [
+                                    'alumno' => $f['nombre'], 'correoAlumno' => $f['correoAl'],
+                                    'correoTutor' => $f['correoTu'], 'clave' => $claveMostrar,
+                                ];
+                            }
+
+                            $dbh->commit();
+                            $msg = "Se importaron " . count($credenciales) . " alumno(s) correctamente en el grupo seleccionado.";
+                            $import_rows_result = ['tipo' => 'credenciales', 'items' => $credenciales];
+                        } catch (Throwable $e) {
+                            if ($dbh->inTransaction()) $dbh->rollBack();
+                            $error = "Ocurrió un error al guardar; no se importó ningún alumno. Intenta de nuevo.";
+                        }
+                    }
+                }
+            } catch (Throwable $e) {
+                $error = "No se pudo leer el archivo Excel. Asegúrate de que sea un .xlsx válido con el formato de la plantilla.";
+            }
+        }
     }
-    $msg = "Se importaron $count registros.";
 }
 ?>
 <!DOCTYPE html>
@@ -236,7 +393,10 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                 <div class="panel-body">
                                     <?php if($msg) echo "<div class='alert alert-success'>" . htmlentities($msg) . "</div>"; ?>
                                     <?php if($error) echo "<div class='alert alert-danger'>" . htmlentities($error) . "</div>"; ?>
-                                    <?php if($tutor_credentials) echo $tutor_credentials; ?>
+                                    <?php /* Credenciales del tutor ocultas (2026-07-09): el tutor entra solo con el
+                                             correo del alumno, sin clave. La cuenta se sigue creando; solo no se muestra
+                                             la contraseña. Reactivar quitando "false &&". */ ?>
+                                    <?php if(false && $tutor_credentials) echo $tutor_credentials; ?>
 
                                     <form method="post" class="row">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
@@ -305,11 +465,88 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
                                     </form>
 
                                     <hr>
-                                    <form method="post" enctype="multipart/form-data">
-                                        <label>Carga Masiva (Excel)</label>
-                                        <input type="file" name="excel_file" accept=".xlsx" required>
-                                        <button type="submit" name="import_excel" class="btn btn-info">Importar</button>
+                                    <h4>Carga Masiva desde Excel</h4>
+                                    <p class="text-muted" style="font-size:13px;">
+                                        Descarga la plantilla, llénala (un alumno por fila) y súbela eligiendo el grupo destino.
+                                        Todos los alumnos del archivo se inscriben en ese grupo. Si una fila tiene error, no se importa ninguna.
+                                    </p>
+
+                                    <div style="margin-bottom:12px;">
+                                        <a href="descargar-plantilla-alumnos.php" class="btn btn-default">
+                                            <i class="fa fa-download"></i> Descargar plantilla de ejemplo
+                                        </a>
+                                    </div>
+
+                                    <form method="post" enctype="multipart/form-data" class="row">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">
+                                        <div class="form-group col-md-5">
+                                            <label>Grupo destino</label>
+                                            <select name="import_class" class="form-control" required>
+                                                <option value="">Seleccione el grupo...</option>
+                                                <?php
+                                                $qImp = $dbh->prepare("SELECT * FROM vw_classes_for_enrollment");
+                                                $qImp->execute();
+                                                foreach ($qImp->fetchAll(PDO::FETCH_OBJ) as $c) {
+                                                    echo "<option value='" . (int)$c->id . "'>" . htmlentities($c->ClassName_display) . "</option>";
+                                                }
+                                                ?>
+                                            </select>
+                                        </div>
+                                        <div class="form-group col-md-5">
+                                            <label>Archivo Excel (.xlsx)</label>
+                                            <input type="file" name="excel_file" accept=".xlsx" class="form-control" required>
+                                        </div>
+                                        <div class="form-group col-md-2" style="display:flex; align-items:flex-end;">
+                                            <button type="submit" name="import_excel" class="btn btn-info btn-block">
+                                                <i class="fa fa-upload"></i> Importar
+                                            </button>
+                                        </div>
                                     </form>
+
+                                    <?php if ($import_rows_result !== null): ?>
+                                        <?php if ($import_rows_result['tipo'] === 'errores'): ?>
+                                            <div class="alert alert-danger" style="margin-top:15px;">
+                                                <strong>Errores encontrados (no se importó nada):</strong>
+                                                <ul style="margin:8px 0 0; padding-left:20px;">
+                                                    <?php foreach ($import_rows_result['items'] as $err): ?>
+                                                        <li><?php echo htmlentities($err); ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                        <?php else: ?>
+                                            <div id="import-result" style="margin-top:20px; border:2px solid #0F9B3A; border-radius:10px; padding:18px; background:#f0fff4;">
+                                                <div class="alert alert-success" style="margin-bottom:12px;">
+                                                    <i class="fa fa-check-circle"></i> <strong>Alumnos importados.</strong> Anótalos o imprímelos como comprobante.
+                                                    Cada familia inicia sesión SOLO con el <strong>correo del alumno</strong> (sin contraseña).
+                                                </div>
+                                                <div style="margin-bottom:10px;">
+                                                    <button type="button" class="btn btn-default btn-sm" onclick="imprimirCredenciales();">
+                                                        <i class="fa fa-print"></i> Imprimir lista
+                                                    </button>
+                                                </div>
+                                                <div style="overflow-x:auto;">
+                                                    <table id="tabla-credenciales" class="table table-bordered" style="font-size:13px; background:#fff;">
+                                                        <thead>
+                                                            <tr style="background:#0F9B3A; color:#fff;">
+                                                                <th>Alumno</th>
+                                                                <th>Correo del alumno (acceso)</th>
+                                                                <th>Correo del tutor</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <?php foreach ($import_rows_result['items'] as $cred): ?>
+                                                                <tr>
+                                                                    <td><?php echo htmlentities($cred['alumno']); ?></td>
+                                                                    <td><?php echo htmlentities($cred['correoAlumno']); ?></td>
+                                                                    <td><?php echo htmlentities($cred['correoTutor']); ?></td>
+                                                                </tr>
+                                                            <?php endforeach; ?>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </section>
@@ -325,6 +562,29 @@ if (isset($_POST['import_excel']) && isset($_FILES['excel_file'])) {
         function toggleTutor(mode) {
             document.getElementById('c_fields').style.display = (mode === 'c') ? 'block' : 'none';
             document.getElementById('e_fields').style.display = (mode === 'e') ? 'block' : 'none';
+        }
+
+        // Tras un import exitoso, llevar la vista a la tabla de credenciales (para que no pase desapercibida).
+        document.addEventListener('DOMContentLoaded', function () {
+            var res = document.getElementById('import-result');
+            if (res) { res.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        });
+
+        // Imprimir solo la tabla de credenciales (ventana aparte).
+        function imprimirCredenciales() {
+            var tabla = document.getElementById('tabla-credenciales');
+            if (!tabla) return;
+            var w = window.open('', '_blank');
+            w.document.write('<html><head><title>Credenciales de acceso - IPT</title>');
+            w.document.write('<style>body{font-family:Arial,sans-serif;padding:20px;} h3{color:#0F9B3A;} table{width:100%;border-collapse:collapse;font-size:13px;} th,td{border:1px solid #333;padding:8px;text-align:left;} th{background:#0F9B3A;color:#fff;}</style>');
+            w.document.write('</head><body>');
+            w.document.write('<h3>Credenciales de acceso al portal - Instituto Panamericano de Tampico</h3>');
+            w.document.write('<p>Cada familia inicia sesión con el <b>correo del alumno</b> y la contraseña indicada.</p>');
+            w.document.write(tabla.outerHTML);
+            w.document.write('</body></html>');
+            w.document.close();
+            w.focus();
+            w.print();
         }
     </script>
 </body>

@@ -991,7 +991,11 @@ if ($selected_student_id) {
                 <span class="student-counter"><?php echo ($current_student_index + 1) . ' / ' . $total_students; ?></span>
             <?php endif; ?>
 
+            <?php /* Contraseña del tutor deshabilitada (2026-07-09): el tutor entra solo con el
+                     correo del alumno, sin clave. Enlace oculto; reactivar quitando el if(false). */ ?>
+            <?php if (false): ?>
             <a href="tutor-change-password.php" class="logout-link" style="margin-top:0;">Cambiar contraseña</a>
+            <?php endif; ?>
             <a href="logout.php" class="logout-link">Cerrar sesión</a>
         </div>
 

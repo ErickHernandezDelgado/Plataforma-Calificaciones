@@ -167,7 +167,9 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                     </div>
                                 <?php } ?>
 
-                                <?php if($nueva_clave_tutor != ""){ ?>
+                                <?php /* Credenciales del tutor ocultas (2026-07-09): el tutor no usa contraseña.
+                                         Reactivar quitando "false &&". */ ?>
+                                <?php if(false && $nueva_clave_tutor != ""){ ?>
                                     <div class="alert alert-warning">
                                         <strong>Nueva contraseña del tutor:</strong> <code><?php echo htmlentities($nueva_clave_tutor); ?></code>
                                         <br><small>Anótala y entrégala al tutor. No se volverá a mostrar.</small>
@@ -237,7 +239,10 @@ if (!isset($_SESSION['alogin']) || $_SESSION['role'] !== 'admin') {
                                                             <i class="fa fa-pencil"></i>
                                                         </a>
 
-                                                        <?php if ($result->TutorEmail) { ?>
+                                                        <?php /* Regenerar contraseña del tutor oculto (2026-07-09): el tutor
+                                                                 entra solo con el correo del alumno, sin clave. Backend reset_tutor
+                                                                 intacto; reactivar cambiando "false &&" por el if original. */ ?>
+                                                        <?php if (false && $result->TutorEmail) { ?>
                                                             <form method="post" action="manage-students.php" style="display:inline;"
                                                                   onsubmit="return confirm('¿Estás seguro de generar una nueva clave para este tutor?')">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES); ?>">

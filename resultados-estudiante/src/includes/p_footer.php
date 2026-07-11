@@ -1,31 +1,11 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        .footer {
-            position: fixed;
-            left: 0;
-            bottom: 0;
-            width: 100%;
-            background-color: #0F9B3A;
-            color: white;
-            text-align: center;
-        }
-    </style>
-</head>
-
-<body>
-
-    <div class="footer">
-        <p>Resultados Estudiante</p>
-    </div>
-    <div class="footer">
-        <p>Resultados Estudiante</p>
-    </div>
-
-</body>
-
-
-</html>
+<?php
+/**
+ * includes/p_footer.php
+ * Antes dibujaba una barra verde fija "Resultados Estudiante" al pie (con HTML mal formado:
+ * un <!DOCTYPE html>/<html> duplicado dentro de la página). Se eliminó a petición del usuario
+ * (2026-07-07) porque estorbaba en las pantallas de admin (fin de ciclo, generar boletas,
+ * agregar calificación, cierre de periodos, generar reporte).
+ *
+ * NO carga JS de la plantilla (eso lo hace includes/footer.php, que sí es crítico). Este
+ * archivo queda como no-op para no romper los include() existentes que lo referencian.
+ */
